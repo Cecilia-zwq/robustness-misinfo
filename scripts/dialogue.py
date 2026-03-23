@@ -13,6 +13,8 @@ Usage example (matches the demo setup):
     --first-message "Hello! I want to debate whether pineapple belongs on pizza. I say it absolutely does. Do you agree?" \
     --system-a "You are a passionate advocate. Argue your position strongly and ask follow-up questions." \
     --system-b "You are a thoughtful critic. Challenge ideas and provide counter-arguments." \
+    --temperature-a 1.0
+    --temperature-b None
     --max-turns 5
 """
 
@@ -25,24 +27,30 @@ import ollama
 
 # ── providers ────────────────────────────────────────────────────────────────
 
-def call_openai(model: str, messages: list, system_prompt) -> str:
+def call_openai(model: str, messages: list, system_prompt, temperature: float = None) -> str:
     client = OpenAI()
     full_messages = []
     if system_prompt:
         full_messages.append({"role": "system", "content": system_prompt})
     full_messages.extend(messages)
 
-    response = client.chat.completions.create(model=model, messages=full_messages)
+    kwargs = {"model": model, "messages": full_messages}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content.strip()
 
 
-def call_ollama(model: str, messages: list, system_prompt) -> str:
+def call_ollama(model: str, messages: list, system_prompt, temperature: float = None) -> str:
     full_messages = []
     if system_prompt:
         full_messages.append({"role": "system", "content": system_prompt})
     full_messages.extend(messages)
 
-    response = ollama.chat(model=model, messages=full_messages)
+    kwargs = {"model": model, "messages": full_messages}
+    if temperature is not None:
+        kwargs["options"] = {"temperature": temperature}
+    response = ollama.chat(**kwargs)
     return response.message.content.strip()
 
 
@@ -108,6 +116,8 @@ def parse_args() -> argparse.Namespace:
                         help="Provider for LLM A  [ollama | openai]  (default: ollama)")
     parser.add_argument("--model-a", default="llama2-uncensored",
                         help="Model name/tag for LLM A (default: llama2-uncensored)")
+    parser.add_argument("--temperature-a", type=float, default=None,
+                        help="Temperature for LLM A (default: None, use provider's default)")
     parser.add_argument("--system-a", default=None,
                         help="System prompt for LLM A")
     parser.add_argument("--label-a", default="Simulated user",
@@ -119,6 +129,8 @@ def parse_args() -> argparse.Namespace:
                         help="Provider for LLM B  [ollama | openai]  (default: openai)")
     parser.add_argument("--model-b", default="gpt-4.1-mini-2025-04-14",
                         help="Model name for LLM B (default: gpt-4.1-mini-2025-04-14)")
+    parser.add_argument("--temperature-b", type=float, default=None,
+                        help="Temperature for LLM B (default: None, use provider's default)")
     parser.add_argument("--system-b", default=None,
                         help="System prompt for LLM B")
     parser.add_argument("--label-b", default="Evaluated LLM",
@@ -144,12 +156,14 @@ def main() -> None:
         "a": {
             "provider": args.provider_a,
             "model":    args.model_a,
+            "temperature": args.temperature_a,
             "system":   args.system_a,
             "label":    f"{args.label_a}  [{args.provider_a.upper()} / {args.model_a}]",
         },
         "b": {
             "provider": args.provider_b,
             "model":    args.model_b,
+            "temperature": args.temperature_b,
             "system":   args.system_b,
             "label":    f"{args.label_b}  [{args.provider_b.upper()} / {args.model_b}]",
         },
@@ -192,7 +206,7 @@ def main() -> None:
               end="", flush=True)
 
         try:
-            reply = call_fn(cfg["model"], messages, cfg["system"])
+            reply = call_fn(cfg["model"], messages, cfg["system"], cfg["temperature"])
         except Exception as exc:
             print(f"\n\033[91m  Error calling {cfg['label']}: {exc}\033[0m")
             sys.exit(1)

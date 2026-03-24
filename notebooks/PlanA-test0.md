@@ -211,6 +211,21 @@ Multi-tactic selection
 - Empty check in `run_character_reflection`
 - `MAX_REFLECTION_PARSE_RETRIES = 3`: if all fail, defaults to a specified value
 
-## V4:
+## V4: Multi-Turn Pattern Analysis in Strategy Reflection
 
-when doing strategy reflections, the success analysis and rebound warning are too simple. It only examine tha past one turn. But inorder to learn from past, the agent should have ability to summarize from past few turns together to analyze the patturns and trends
+> Based on the results from v3.5, which is derived from v3 but fixes the bugs. When doing strategy reflections, the success analysis and rebound warning are too simple. It only examines the past one turn. But to learn from the past, the agent should have the ability to summarize from the past few turns together to analyze the patterns and trends. Consider how to adjust the v3.5 to create a better reflection module in v4.
+
+State additions — track cumulative success/rebound turn indices so the reflector can reference them explicitly.
+
+Annotated trajectory format — instead of passing raw conversation + a flat score list separately, build a single interleaved timeline where each exchange is annotated with its tactic, scores, and classification (SOFT/REBOUND/HOLD). This forces the reflector to reason about sequences rather than individual events.
+
+`Revised STRATEGY_REFLECTION_SYSTEM` — add four new required output sections:
+
+- `PATTERN_ANALYSIS` (which tactic sequences across 2–4 turns correlate with sustained softening),
+- `TACTIC_DECAY` (tactics that worked then stopped working when repeated),
+- `MOMENTUM_STATUS` (is cumulative pressure building or plateauing),
+- revise `SUCCESS_ANALYSIS/REBOUND_WARNING` to explicitly require multi-turn span reasoning.
+
+`last_success_pattern` upgrade — store the best sequence of turns (not just the best single turn) so the actor can replicate a winning run.
+
+Results: this is not a good revision; to complicated. **Go back to v3.5**

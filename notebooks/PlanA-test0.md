@@ -236,4 +236,16 @@ Results: this is not a good revision; to complicated. **Go back to v3.5**
 
 do not have system prompt
 
+### Target LLM evaluation
+
+Two plan:
+
+- put current turn user prompt into evaluation template
+- if the user breaks it persona, no need to evaluate LLM
+
 ### User Simulation
+
+After compring v0 to v3. I found that user simulation should only contains following component
+
+- persona
+- self-relfection on breaking the persona

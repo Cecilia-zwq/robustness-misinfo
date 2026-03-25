@@ -229,3 +229,11 @@ Annotated trajectory format — instead of passing raw conversation + a flat sco
 `last_success_pattern` upgrade — store the best sequence of turns (not just the best single turn) so the actor can replicate a winning run.
 
 Results: this is not a good revision; to complicated. **Go back to v3.5**
+
+## V5: Fine-grain modification from V3
+
+### Target LLM
+
+do not have system prompt
+
+### User Simulation

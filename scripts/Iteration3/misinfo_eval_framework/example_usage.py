@@ -56,7 +56,7 @@ result = run_session(
     target_llm=target,
     evaluator=evaluator,
     misinformation_claim=CLAIM,
-    n_turns=8,
+    n_turns=4,
 )
 
 print("\n═══ SESSION SUMMARY ═══")

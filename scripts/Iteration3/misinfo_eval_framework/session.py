@@ -43,12 +43,18 @@ class TurnRecord:
         Response from the TargetLLM.
     scores : dict
         Evaluation scores (e.g., 'correction', 'rebuttal').
+    character_breaks : int
+        Number of character breaks detected by reflection on this turn.
+    is_fallback : bool
+        Whether the agent exhausted all retries and fell back on this turn.
     """
 
     turn: int
     user_message: str
     target_response: str
     scores: dict
+    character_breaks: int = 0
+    is_fallback: bool = False
 
 
 @dataclass
@@ -70,13 +76,20 @@ class SessionResult:
         Records for each conversational turn.
     conversation_history : list[dict]
         Full conversation in OpenAI chat format (role/content pairs).
+    n_breaks_total : int
+        Total number of character breaks flagged by the reflection module
+        across all turns (including the opening).
+    n_breaks_fallback : int
+        Number of turns where all retries were exhausted and a fallback
+        message was used.
     """
 
     misinformation_claim: str
     n_turns: int
     turns: list[TurnRecord] = field(default_factory=list)
     conversation_history: list[dict] = field(default_factory=list)
-    character_breaks: int = 0
+    n_breaks_total: int = 0
+    n_breaks_fallback: int = 0
 
     # ════════════════════════════════════════════════════════════════════════════
     # Aggregate Metrics
@@ -103,17 +116,17 @@ class SessionResult:
                 "correction": t.scores.get("correction"),
                 "rebuttal": t.scores.get("rebuttal"),
                 "character_breaks": t.character_breaks,
+                "is_fallback": t.is_fallback,
             }
             for t in self.turns
         ]
     
     @property
     def character_break_rate(self) -> float:
-        """Fraction of turns (excluding turn 1) where at least one break occurred."""
-        eligible = [t for t in self.turns if t.turn > 1]
-        if not eligible:
+        """Fraction of all turns where at least one character break occurred."""
+        if not self.turns:
             return 0.0
-        return sum(1 for t in eligible if t.character_breaks > 0) / len(eligible)
+        return sum(1 for t in self.turns if t.character_breaks > 0) / len(self.turns)
 
     def summary(self) -> dict:
         """Return a compact summary dict for logging and analysis.
@@ -121,15 +134,17 @@ class SessionResult:
         Returns
         -------
         dict
-            Contains claim, n_turns, mean metrics, and score trajectory.
+            Contains claim, n_turns, mean metrics, break stats, and score trajectory.
         """
         return {
             "misinformation_claim": self.misinformation_claim,
             "n_turns": self.n_turns,
             "mean_correction": round(self.mean_correction, 3),
             "mean_rebuttal": round(self.mean_rebuttal, 3),
-            "score_trajectory": self.score_trajectory,
+            "n_breaks_total": self.n_breaks_total,
+            "n_breaks_fallback": self.n_breaks_fallback,
             "character_break_rate": round(self.character_break_rate, 3),
+            "score_trajectory": self.score_trajectory,
         }
 
 
@@ -146,7 +161,8 @@ def run_session(
     Orchestrates a conversation where:
     1. The SimulatedUserAgent advocates for a misinformation claim.
     2. The TargetLLM responds to defend against the false claim.
-    3. The Evaluator scores the TargetLLM's response for  quality of strength and rebuttal.
+    3. The Evaluator scores the TargetLLM's response for quality of
+       correction and rebuttal.
     
     This process repeats for n_turns, building a conversation history and
     collecting scores for analysis.
@@ -169,9 +185,9 @@ def run_session(
     -------
     SessionResult
         Complete session result with:
-        - All turn records (messages, responses, scores).
+        - All turn records (messages, responses, scores, break info).
         - Full conversation history.
-        - Aggregate metrics (mean correction, mean rebuttal).
+        - Aggregate metrics (mean correction, mean rebuttal, break stats).
     """
     result = SessionResult(
         misinformation_claim=misinformation_claim,
@@ -196,16 +212,24 @@ def run_session(
                 conversation_history, misinformation_claim
             )
         
+        # Read per-call break stats from the agent
         breaks = user_agent._last_break_count
+        is_fallback = user_agent._last_fallback
+
+        # Accumulate session-level break counters
+        result.n_breaks_total += breaks
+        if is_fallback:
+            result.n_breaks_fallback += 1
+
         conversation_history.append({"role": "user", "content": user_msg})
-        logger.info("USER: %s", user_msg[:120])
+        logger.info("USER: %s", user_msg)
 
         # ─ Step 2: Target LLM responds ─────────────────────────────────────────────
         # The model under evaluation receives the full conversation history
         # and generates a response to counter / correct the misinformation.
         target_response = target_llm.respond(conversation_history)
         conversation_history.append({"role": "assistant", "content": target_response})
-        logger.info("TARGET: %s", target_response[:120])
+        logger.info("TARGET: %s", target_response)
 
         # ─ Step 3: Evaluator scores the response ───────────────────────────────────
         # Score the LLM's response on:
@@ -217,10 +241,12 @@ def run_session(
             misinformation_claim=misinformation_claim,
         )
         logger.info(
-            "SCORES — correction: %.0f, rebuttal: %.0f | character_breaks: %d",
+            "SCORES — correction: %.0f, rebuttal: %.0f | "
+            "character_breaks: %d, is_fallback: %s",
             scores.get("correction", -1),
             scores.get("rebuttal", -1),
             breaks,
+            is_fallback,
         )
 
         # ─ Record this turn ────────────────────────────────────────────────────────
@@ -231,6 +257,7 @@ def run_session(
                 target_response=target_response,
                 scores=scores,
                 character_breaks=breaks,
+                is_fallback=is_fallback,
             )
         )
 

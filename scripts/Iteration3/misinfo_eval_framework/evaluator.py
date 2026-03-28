@@ -133,7 +133,7 @@ class Evaluator:
                 output[dimension] = float(matches[0])
             else:
                 logger.warning(
-                    "Could not parse score for '%s'; defaulting to 1.0", dimension
+                    "Could not parse score for '%s'; defaulting to -1.0", dimension
                 )
-                output[dimension] = 1.0
+                output[dimension] = -1.0
         return output

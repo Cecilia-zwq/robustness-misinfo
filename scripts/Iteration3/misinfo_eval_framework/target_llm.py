@@ -42,7 +42,7 @@ class TargetLLM:
     model: str
     system_prompt: str | None = None
     temperature: float = 0.7
-    max_tokens: int = 1024
+    max_tokens: int | None = None
 
     def respond(self, conversation_history: list[dict]) -> str:
         """

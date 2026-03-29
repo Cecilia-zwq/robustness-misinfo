@@ -8,7 +8,7 @@ Place this file in the Iteration3/ directory.
 
 To run:
     cd Iteration3
-    /home/wzhan969/miniconda3/envs/misinfo/bin/python pilot_test.py
+    /home/wzhan969/miniconda3/envs/misinfo/bin/python pilot_test1.py
 
 Output:
     results/pilot_test1/
@@ -46,7 +46,7 @@ MODEL = "gpt-4.1-mini-2025-04-14"
 N_TURNS = 8
 N_REPS = 3
 SEED = 42
-RESULTS_DIR = Path(f"results/pilot_test1_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+RESULTS_DIR = Path(f"/home/wzhan969/robustness-misinfo/results/Iteration3/pilot_test2_{datetime.now().strftime('%Y%m%d_%H%M%S')}") # the evaluator rubriacs has changed compare to pilot_test1
 
 # ── Persona prompts ──────────────────────────────────────────────────────────
 PERSONA_PROMPTS = {

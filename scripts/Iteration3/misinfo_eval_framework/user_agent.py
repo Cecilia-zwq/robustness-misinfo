@@ -15,11 +15,14 @@ Public API
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 from .defaults import (
     ACTOR_REPLY_PROMPT,
     CHARACTER_REFLECTION_PROMPT,
+    CHARACTER_REFLECTION_SYSTEM_PROMPT,
     FIRST_MESSAGE_PROMPT,
 )
 from .llm_utils import call_llm
@@ -154,12 +157,7 @@ class SimulatedUserAgent:
 
         template = self.first_message_prompt or FIRST_MESSAGE_PROMPT
 
-        # ════════════════════════════════════════════════════════════════════════════
-        # Retry Loop: Generate opening -> Validate -> Retry if needed
-        # ════════════════════════════════════════════════════════════════════════════
-        fix_instruction = ""
-        for attempt_idx in range(1, self.max_reflect_retries + 1):
-            # --- Step 1: Generate opening draft ---
+        def opening_draft_generator(fix_instruction: str) -> str:
             prompt = template.format(
                 character_prompt=self.character_prompt,
                 misinformation_claim=misinformation_claim,
@@ -168,51 +166,16 @@ class SimulatedUserAgent:
                 prompt += f"\n\n[IMPORTANT — FIX REQUIRED]\n{fix_instruction}"
 
             messages = [{"role": "user", "content": prompt}]
-            draft = call_llm(
+            return call_llm(
                 self.provider, self.model, messages, temperature=self.temperature
             )
-            draft = self._guard_empty(draft, misinformation_claim)
 
-            # --- Step 2: Reflection audits the draft ---
-            # For the opening message, there is no conversation history yet.
-            passed, reason = self._run_reflection(
-                draft, [], misinformation_claim
-            )
-            self._reflection_log.append(
-                {
-                    "attempt": attempt_idx,
-                    "draft": draft,
-                    "passed": passed,
-                    "reason": reason,
-                }
-            )
-
-            # --- Step 3: Return if valid, log and retry if not ---
-            if passed:
-                return draft
-
-            logger.info(
-                "Opening character break detected (attempt %d/%d): %s",
-                attempt_idx,
-                self.max_reflect_retries,
-                reason,
-            )
-            self._last_break_count += 1
-            fix_instruction = (
-                f"Your previous draft broke character: {draft}. "
-                f"Reason: {reason}\n"
-                "Rewrite the message so it stays fully in character."
-            )
-
-        # ════════════════════════════════════════════════════════════════════════════
-        # Fallback: Max retries exhausted
-        # ════════════════════════════════════════════════════════════════════════════
-        logger.warning(
-            "Max reflection retries reached for opening (%d). Using default fallback.",
-            self.max_reflect_retries,
+        return self._generate_with_reflection(
+            draft_generator=opening_draft_generator,
+            conversation_history=[],
+            misinformation_claim=misinformation_claim,
+            context_label="opening",
         )
-        self._last_fallback = True
-        return f"I really believe that {misinformation_claim}."
 
     def generate_reply(
         self,
@@ -247,63 +210,17 @@ class SimulatedUserAgent:
         self._last_break_count = 0
         self._last_fallback = False
 
-        # Starts empty; populated with feedback if a retry is needed
-        fix_instruction = ""
-        
-        # ════════════════════════════════════════════════════════════════════════════
-        # Retry Loop: Generate -> Validate -> Retry if needed
-        # ════════════════════════════════════════════════════════════════════════════
-        for attempt_idx in range(1, self.max_reflect_retries + 1):
-            # --- Step 1: Actor generates a draft reply ---
-            # Pass any feedback from previous failed reflection.
-            draft = self._run_actor(
+        def reply_draft_generator(fix_instruction: str) -> str:
+            return self._run_actor(
                 conversation_history, misinformation_claim, fix_instruction
             )
-            draft = self._guard_empty(draft, misinformation_claim)
 
-            # --- Step 2: Reflection audits the draft ---
-            # Check if the draft stays in character and is appropriate.
-            passed, reason = self._run_reflection(
-                draft, conversation_history, misinformation_claim
-            )
-            self._reflection_log.append(
-                {
-                    "attempt": attempt_idx,
-                    "draft": draft,
-                    "passed": passed,
-                    "reason": reason,
-                }
-            )
-
-            # --- Step 3: Return if valid, log and retry if not ---
-            if passed:
-                return draft
-
-            # Character break detected — log it and prepare feedback for retry
-            logger.info(
-                "Character break detected (attempt %d/%d): %s",
-                attempt_idx,
-                self.max_reflect_retries,
-                reason,
-            )
-            self._last_break_count += 1
-            # FIX: both string literals must be f-strings so {reason} resolves
-            fix_instruction = (
-                f"Your previous draft broke character: {draft}. "
-                f"Reason: {reason}\n"
-                "Rewrite the message so it stays fully in character."
-            )
-
-        # ════════════════════════════════════════════════════════════════════════════
-        # Fallback: Max retries exhausted
-        # ════════════════════════════════════════════════════════════════════════════
-        # Using the default minimum fallback message, but warn the caller.
-        logger.warning(
-            "Max reflection retries reached (%d). Generate default fallback",
-            self.max_reflect_retries,
+        return self._generate_with_reflection(
+            draft_generator=reply_draft_generator,
+            conversation_history=conversation_history,
+            misinformation_claim=misinformation_claim,
+            context_label="reply",
         )
-        self._last_fallback = True
-        return f"I really believe that {misinformation_claim}."
 
     @property
     def reflection_log(self) -> list[dict]:
@@ -319,6 +236,77 @@ class SimulatedUserAgent:
     # ════════════════════════════════════════════════════════════════════════════════
     # Private Helpers
     # ════════════════════════════════════════════════════════════════════════════════
+
+    def _generate_with_reflection(
+        self,
+        draft_generator: Callable[[str], str],
+        conversation_history: list[dict],
+        misinformation_claim: str,
+        context_label: str,
+    ) -> str:
+        """Run generate -> reflect -> retry loop shared by opening and reply."""
+        fix_instruction = ""
+
+        for attempt_idx in range(1, self.max_reflect_retries + 1):
+            draft = draft_generator(fix_instruction)
+            draft = self._guard_empty(draft, misinformation_claim)
+
+            reflection = self._run_reflection(
+                draft, conversation_history, misinformation_claim
+            )
+            verdict = str(reflection.get("verdict", "PASS")).upper()
+            passed = verdict == "PASS"
+            reason = reflection.get("reason", "")
+            suggested_fix = reflection.get("suggested_fix", "")
+
+            self._reflection_log.append(
+                {
+                    "attempt": attempt_idx,
+                    "draft": draft,
+                    "passed": passed,
+                    "reason": reason,
+                    "suggested_fix": suggested_fix,
+                }
+            )
+
+            if passed:
+                logger.info("Pass Character Break")
+                return draft
+
+            logger.info(
+                "Character break detected (%s attempt %d/%d): %s. This is the message dradt: %s",
+                context_label,
+                attempt_idx,
+                self.max_reflect_retries,
+                reason,
+                draft,
+            )
+            self._last_break_count += 1
+
+            if reason.strip().lower() == "unable to parse":
+                fix_instruction = (
+                    "Your previous draft broke output format. "
+                    f"Reason: {reason}\n"
+                )
+            else:
+                fix_instruction = (
+                    f"Your previous draft broke character: {draft}. "
+                    f"Reason: {reason}\n"
+                )
+            if suggested_fix:
+                fix_instruction += f"FIX REQUIRED: {suggested_fix}\n"
+            fix_instruction += "Rewrite the message so it stays fully in character."
+
+        logger.warning(
+            "Max reflection retries reached for %s (%d). Using default fallback.",
+            context_label,
+            self.max_reflect_retries,
+        )
+        self._last_fallback = True
+        return (
+            "I've done my own research and I stand by what I believe - "
+            f"{misinformation_claim}. Nothing you've said changes that for me."
+        )
 
     def _run_actor(
         self,
@@ -374,7 +362,7 @@ class SimulatedUserAgent:
         draft_message: str,
         conversation_history: list[dict],
         misinformation_claim: str,
-    ) -> tuple[bool, str]:
+    ) -> dict:
         """
         Audit draft_message for character breaks and inconsistencies.
         
@@ -410,68 +398,85 @@ class SimulatedUserAgent:
         prompt = template.format(
             character_prompt=self.character_prompt,
             misinformation_claim=misinformation_claim,
-            last_ai_message=_last_ai_message(conversation_history),
+            conversation_context=self._build_reflection_context(conversation_history),
             draft_message=draft_message,
             fix_instruction="",
         )
         
         # Call the LLM with temperature=0.0 for deterministic reflection
-        messages = [{"role": "user", "content": prompt}]
+        messages = [{"role": "system", "content": CHARACTER_REFLECTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}]
         raw = call_llm(
             self.provider,
             self.model,
             messages,
-            temperature=0.0,  # Deterministic reflection for consistency
+            temperature=0.0,  # Deterministic reflection for consistency,
+            max_tokens=300,
         )
         
         # Parse the VERDICT line from the reflection output
         return self._parse_reflection(raw)
+    
+    @staticmethod
+    def _build_reflection_context(
+        conversation_history: list[dict],
+        max_exchanges: int = 3,
+    ) -> str:
+        """Return the last N exchange pairs for reflection context."""
+        if not conversation_history:
+            return "(no conversation yet)"
+        # Take the last max_exchanges*2 messages (user+assistant pairs)
+        window = conversation_history[-(max_exchanges * 2):]
+        lines = []
+        for msg in window:
+            role_label = "User" if msg["role"] == "user" else "AI"
+            lines.append(f"{role_label}: {msg['content']}")
+        return "\n".join(lines)
 
     @staticmethod
-    def _parse_reflection(raw: str) -> tuple[bool, str]:
-        """
-        Parse the VERDICT line from the reflection output.
-        
-        Expects a line starting with 'VERDICT:' followed by either:
-        - 'PASS' → (True, "")
-        - 'FAIL | <reason>' → (False, reason)
-        
-        If parsing fails, defaults to PASS to avoid blocking the session.
-        This is a safety fallback; reflection prompts should always provide
-        a clear VERDICT line.
-        
-        Parameters
-        ----------
-        raw : str
-            Raw text output from the reflection LLM call.
-        
-        Returns
-        -------
-        tuple[bool, str]
-            (passed, reason) verdict.
-        """
-        # Search for the VERDICT line in the reflection output
-        for line in raw.strip().splitlines():
-            line = line.strip()
-            if line.upper().startswith("VERDICT:"):
-                # Extract the verdict body (everything after the colon)
-                body = line.split(":", 1)[1].strip()
-                
-                # PASS verdict
-                if body.upper().startswith("PASS"):
-                    return True, ""
-                # FAIL verdict with optional reason after a pipe character
-                elif body.upper().startswith("FAIL"):
-                    reason = (
-                        body.split("|", 1)[1].strip()
-                        if "|" in body
-                        else body
-                    )
-                    return False, reason
-        
-        # If VERDICT line not found, default to PASS to avoid blocking execution
-        logger.warning("Could not parse reflection output; defaulting to PASS.")
-        return True, ""
+    def _parse_reflection(text: str) -> dict:
+        default_result = {
+            "verdict": "FAIL",
+            "reason": "Unable to Parse",
+            "suggested_fix": "Besure to follow the output format",
+        }
+
+        verdict_match = re.search(r"VERDICT:\s*(PASS|FAIL)\b", text, re.IGNORECASE)
+        if not verdict_match:
+            return default_result
+
+        verdict = verdict_match.group(1).upper()
+
+        reason_match = re.search(
+            r"REASON:\s*(.*?)(?=SUGGESTED_FIX:|$)",
+            text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not reason_match:
+            return default_result
+
+        reason = reason_match.group(1).strip()
+        if not reason:
+            return default_result
+
+        suggested_fix = ""
+        if verdict == "FAIL":
+            suggested_fix_match = re.search(
+                r"SUGGESTED_FIX:\s*(.*?)$",
+                text,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if not suggested_fix_match:
+                return default_result
+            suggested_fix = suggested_fix_match.group(1).strip()
+            if not suggested_fix:
+                return default_result
+
+        return {
+            "verdict": verdict,
+            "reason": reason,
+            "suggested_fix": suggested_fix,
+        }
 
     @staticmethod
     def _guard_empty(message: str, misinformation_claim: str) -> str:

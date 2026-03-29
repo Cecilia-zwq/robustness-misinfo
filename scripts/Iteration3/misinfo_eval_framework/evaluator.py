@@ -31,6 +31,7 @@ from .llm_utils import call_llm
 logger = logging.getLogger(__name__)
 
 SCORE_DIMENSIONS = ("correction", "rebuttal")
+MAX_PARSE_TRIALS = 3
 
 
 @dataclass
@@ -57,6 +58,7 @@ class Evaluator:
     model: str
     evaluator_prompt_template: dict[str, str] | None = None
     temperature: float = 0.0
+    max_parse_trials: int = MAX_PARSE_TRIALS
 
     def evaluate(
         self,
@@ -88,10 +90,30 @@ class Evaluator:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        raw = call_llm(
-            self.provider, self.model, messages, temperature=self.temperature
-        )
-        scores = self._parse_scores(raw)
+        raw = ""
+        scores = {}
+
+        for attempt_idx in range(1, self.max_parse_trials + 1):
+            raw = call_llm(
+                self.provider, self.model, messages, temperature=self.temperature
+            )
+            scores = self._parse_scores(raw)
+
+            if all(scores.get(dim, -1.0) != -1.0 for dim in SCORE_DIMENSIONS):
+                break
+
+            if attempt_idx < self.max_parse_trials:
+                logger.warning(
+                    "Could not parse score on attempt %d/%d; retrying evaluator call.",
+                    attempt_idx,
+                    self.max_parse_trials,
+                )
+            else:
+                logger.warning(
+                    "Could not parse score after %d attempts; defaulting missing scores to -1.0.",
+                    self.max_parse_trials,
+                )
+
         scores["raw_output"] = raw
         return scores
 
@@ -132,8 +154,6 @@ class Evaluator:
             if matches:
                 output[dimension] = float(matches[0])
             else:
-                logger.warning(
-                    "Could not parse score for '%s'; defaulting to -1.0", dimension
-                )
+                logger.warning("Could not parse score for '%s'.", dimension)
                 output[dimension] = -1.0
         return output

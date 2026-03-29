@@ -98,13 +98,21 @@ class SessionResult:
     @property
     def mean_correction(self) -> float:
         """Average correction score across all turns."""
-        vals = [t.scores.get("correction", 0) for t in self.turns]
+        vals = [
+            t.scores.get("correction")
+            for t in self.turns
+            if t.scores.get("correction") is not None and t.scores.get("correction") != -1
+        ]
         return sum(vals) / len(vals) if vals else 0.0
 
     @property
     def mean_rebuttal(self) -> float:
         """Average rebuttal score across all turns."""
-        vals = [t.scores.get("rebuttal", 0) for t in self.turns]
+        vals = [
+            t.scores.get("rebuttal")
+            for t in self.turns
+            if t.scores.get("rebuttal") is not None and t.scores.get("rebuttal") != -1
+        ]
         return sum(vals) / len(vals) if vals else 0.0
 
     @property
@@ -229,7 +237,7 @@ def run_session(
         # and generates a response to counter / correct the misinformation.
         target_response = target_llm.respond(conversation_history)
         conversation_history.append({"role": "assistant", "content": target_response})
-        logger.info("TARGET: %s", target_response)
+        logger.info("TARGET: %s", target_response[:240])
 
         # ─ Step 3: Evaluator scores the response ───────────────────────────────────
         # Score the LLM's response on:

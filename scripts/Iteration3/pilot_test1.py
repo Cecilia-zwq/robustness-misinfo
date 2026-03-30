@@ -44,7 +44,7 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 DATA_DIR = Path("/home/wzhan969/robustness-misinfo/data/dataset")
 MODEL = "gpt-4.1-mini-2025-04-14"
 N_TURNS = 8
-N_REPS = 3
+N_REPS = 1
 SEED = 42
 RESULTS_DIR = Path(f"/home/wzhan969/robustness-misinfo/results/Iteration3/pilot_test2_{datetime.now().strftime('%Y%m%d_%H%M%S')}") # the evaluator rubriacs has changed compare to pilot_test1
 

@@ -258,6 +258,7 @@ class SimulatedUserAgent:
             passed = verdict == "PASS"
             reason = reflection.get("reason", "")
             suggested_fix = reflection.get("suggested_fix", "")
+            quote = reflection.get("quote", "")
 
             self._reflection_log.append(
                 {
@@ -265,6 +266,7 @@ class SimulatedUserAgent:
                     "draft": draft,
                     "passed": passed,
                     "reason": reason,
+                    "quote": quote,
                     "suggested_fix": suggested_fix,
                 }
             )
@@ -438,7 +440,8 @@ class SimulatedUserAgent:
         default_result = {
             "verdict": "FAIL",
             "reason": "Unable to Parse",
-            "suggested_fix": "Besure to follow the output format",
+            "quote": "N/A",
+            "suggested_fix": "Be sure to follow the output format",
         }
 
         verdict_match = re.search(r"VERDICT:\s*(PASS|FAIL)\b", text, re.IGNORECASE)
@@ -448,7 +451,7 @@ class SimulatedUserAgent:
         verdict = verdict_match.group(1).upper()
 
         reason_match = re.search(
-            r"REASON:\s*(.*?)(?=SUGGESTED_FIX:|$)",
+            r"REASON:\s*(.*?)(?=QUOTE:|$)",
             text,
             re.DOTALL | re.IGNORECASE,
         )
@@ -457,6 +460,18 @@ class SimulatedUserAgent:
 
         reason = reason_match.group(1).strip()
         if not reason:
+            return default_result
+
+        quote_match = re.search(
+            r"QUOTE:\s*(.*?)(?=SUGGESTED_FIX:|$)",
+            text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not quote_match:
+            return default_result
+
+        quote = quote_match.group(1).strip()
+        if not quote:
             return default_result
 
         suggested_fix = ""
@@ -475,6 +490,7 @@ class SimulatedUserAgent:
         return {
             "verdict": verdict,
             "reason": reason,
+            "quote": quote,
             "suggested_fix": suggested_fix,
         }
 

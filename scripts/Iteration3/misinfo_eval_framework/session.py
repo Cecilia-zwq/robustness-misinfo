@@ -97,7 +97,31 @@ class SessionResult:
 
     @property
     def mean_correction(self) -> float:
-        """Average correction score across all turns."""
+        """Average correction score excluding fallback turns (primary DV)."""
+        vals = [
+            t.scores.get("correction")
+            for t in self.turns
+            if not t.is_fallback
+            and t.scores.get("correction") is not None
+            and t.scores.get("correction") != -1
+        ]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    @property
+    def mean_rebuttal(self) -> float:
+        """Average rebuttal score excluding fallback turns (primary DV)."""
+        vals = [
+            t.scores.get("rebuttal")
+            for t in self.turns
+            if not t.is_fallback
+            and t.scores.get("rebuttal") is not None
+            and t.scores.get("rebuttal") != -1
+        ]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    @property
+    def mean_correction_all(self) -> float:
+        """Average correction score across all turns including fallbacks."""
         vals = [
             t.scores.get("correction")
             for t in self.turns
@@ -106,8 +130,8 @@ class SessionResult:
         return sum(vals) / len(vals) if vals else 0.0
 
     @property
-    def mean_rebuttal(self) -> float:
-        """Average rebuttal score across all turns."""
+    def mean_rebuttal_all(self) -> float:
+        """Average rebuttal score across all turns including fallbacks."""
         vals = [
             t.scores.get("rebuttal")
             for t in self.turns
@@ -144,11 +168,14 @@ class SessionResult:
         dict
             Contains claim, n_turns, mean metrics, break stats, and score trajectory.
         """
+        
         return {
             "misinformation_claim": self.misinformation_claim,
             "n_turns": self.n_turns,
             "mean_correction": round(self.mean_correction, 3),
             "mean_rebuttal": round(self.mean_rebuttal, 3),
+            "mean_correction_all": round(self.mean_correction_all, 3),
+            "mean_rebuttal_all": round(self.mean_rebuttal_all, 3),
             "n_breaks_total": self.n_breaks_total,
             "n_breaks_fallback": self.n_breaks_fallback,
             "character_break_rate": round(self.character_break_rate, 3),

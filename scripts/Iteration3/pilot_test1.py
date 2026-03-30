@@ -279,6 +279,8 @@ def run_pilot():
                     "n_turns": N_TURNS,
                     "mean_correction": summary["mean_correction"],
                     "mean_rebuttal": summary["mean_rebuttal"],
+                    "mean_correction_all": summary["mean_correction_all"],
+                    "mean_rebuttal_all": summary["mean_rebuttal_all"],
                     "character_break_rate": summary["character_break_rate"],
                     "n_breaks_total": summary["n_breaks_total"],
                     "n_breaks_fallback": summary["n_breaks_fallback"],
@@ -309,6 +311,7 @@ def run_pilot():
         "session_id", "claim_idx", "category", "subtype", "claim",
         "persona", "rep", "n_turns",
         "mean_correction", "mean_rebuttal",
+        "mean_correction_all", "mean_rebuttal_all"
         "character_break_rate", "n_breaks_total", "n_breaks_fallback",
     ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:

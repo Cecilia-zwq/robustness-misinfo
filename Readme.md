@@ -45,7 +45,7 @@ Primary files in `data/dataset/`:
 
 ## Iteration 3 workflow
 
-Main scripts are in `scripts/Iteration3/`.
+Main scripts are in `scripts`. Notebooks are in `notebooks`
 
 1. `test_personas.py`
    - Smoke test for persona behavior on a single claim.
@@ -60,7 +60,7 @@ Main scripts are in `scripts/Iteration3/`.
    - Writes session logs plus `summary.json`, `summary.csv`, `turn_level.csv`, and `checkpoint.json`.
    - Supports resume with `--resume <existing_results_dir>`.
 
-4. `experiment1_analysis.py`
+4. `experiment1_analysis.ipynb`
    - Statistical summary and figure generation from `summary.csv` and `turn_level.csv`.
    - Generates trajectory/distribution/interaction plots for reporting.
 

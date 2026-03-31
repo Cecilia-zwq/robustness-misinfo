@@ -243,7 +243,7 @@ print(f"\n{'═' * 70}")
 print("6. GENERATING PLOTS")
 print(f"{'═' * 70}")
 
-palette = {'Soft (Emotional)': '#e07b54', 'Hard (Aggressive)': '#4a90d9'}
+palette = {'Soft (Emotional)': '#00c9ac', 'Hard (Aggressive)': '#4F2683'}
 
 # ── Plot 1: Score trajectory by turn × persona ──────────────────────────────
 fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)

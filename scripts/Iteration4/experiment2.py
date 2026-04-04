@@ -11,19 +11,19 @@ Experiment 1 sessions.
 
 Design: 10 claims × 2 personas × 3 reps = 60 sessions.
 
-Place this file in the Iteration3/ directory.
+Place this file in the Iteration4/ directory.
 
 Usage:
     # Fresh run
-    cd Iteration3
+    cd Iteration4
     /home/wzhan969/miniconda3/envs/misinfo/bin/python experiment2.py
 
     # Resume an interrupted run
     /home/wzhan969/miniconda3/envs/misinfo/bin/python experiment2.py \
-        --resume results/Iteration3/experiment2_20260401_120000
+        --resume results/Iteration4/experiment2_20260401_120000
 
 Output:
-    results/Iteration3/experiment2_<timestamp>/
+    results/Iteration4/experiment2_<timestamp>/
     ├── sessions/                          # one .txt log per session
     │   ├── bias_00_persona_a_soft_rep1.txt
     │   └── ...
@@ -510,7 +510,7 @@ def run_experiment(resume_dir: str | None = None):
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir = Path(
-            f"/home/wzhan969/robustness-misinfo/results/Iteration3/"
+            f"/home/wzhan969/robustness-misinfo/results/Iteration4/"
             f"experiment2_{timestamp}"
         )
 

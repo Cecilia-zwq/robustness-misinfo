@@ -89,6 +89,9 @@ class SimulatedUserAgent:
     reflection_prompt : str | None
         Custom prompt template for the character-break auditor.
         If None, uses default reflection prompt.
+    reflection_system_prompt: str | None
+        Custom system prompt template for the character-break auditor.
+        If None, uses default reflection system prompt.
     max_reflect_retries : int
         How many times the actor may regenerate before accepting the draft.
     temperature : float
@@ -102,6 +105,7 @@ class SimulatedUserAgent:
     first_message_prompt: str | None = None
     first_message: str | None = None
     reflection_prompt: str | None = None
+    reflection_system_prompt: str | None = None
     max_reflect_retries: int = MAX_REFLECT_RETRIES
     temperature: float = 0.7
 
@@ -404,9 +408,11 @@ class SimulatedUserAgent:
             draft_message=draft_message,
             fix_instruction="",
         )
+
+        system_prompt = self.reflection_system_prompt or CHARACTER_REFLECTION_SYSTEM_PROMPT
         
         # Call the LLM with temperature=0.0 for deterministic reflection
-        messages = [{"role": "system", "content": CHARACTER_REFLECTION_SYSTEM_PROMPT},
+        messages = [{"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}]
         raw = call_llm(
             self.provider,

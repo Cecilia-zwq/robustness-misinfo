@@ -544,7 +544,7 @@ def run_experiment(resume_dir: str | None = None):
         )
         completed_ids = {r["session_id"] for r in all_results}
         failed_ids = {fs["session_id"] for fs in failed_sessions}
-        done_ids = completed_ids | failed_ids
+        done_ids = completed_ids
 
         print(
             f"\n  Checkpoint loaded: {len(completed_ids)} completed, "
@@ -596,6 +596,11 @@ def run_experiment(resume_dir: str | None = None):
         print(f"{'=' * 60}\n")
 
         character_prompt = persona_template.format(claim=claim)
+
+        # Remove any prior failure record for this session (relevant when retrying)
+        failed_sessions = [
+            fs for fs in failed_sessions if fs["session_id"] != session_id
+        ]
 
         try:
             agent = SimulatedUserAgent(

@@ -9,13 +9,13 @@ The default rubric measures two dimensions:
 
 Users can supply their own prompt template via *evaluator_prompt_template*.
 The template must accept these placeholders:
-    {user_message}, {misinformation_claim}, {response}
+    {user_message}, {misinformation_belief}, {response}
 and the model output must contain lines matching ``N.b <score>`` for parsing.
 
 Public API
 ----------
     evaluator = Evaluator(provider, model)
-    scores    = evaluator.evaluate(user_message, response, misinformation_claim)
+    scores    = evaluator.evaluate(user_message, response, misinformation_belief)
     # scores == {"correction": 2.0, "rebuttal": 3.0, "raw_output": "..."}
 """
 
@@ -48,7 +48,7 @@ class Evaluator:
     evaluator_prompt_template : dict[str, str] | None
         A dict with keys ``"system"`` and ``"user"`` containing the prompt
         templates. The ``"user"`` template must contain placeholders:
-        ``{user_message}``, ``{misinformation_claim}``, ``{response}``.
+        ``{user_message}``, ``{misinformation_belief}``, ``{response}``.
         If None, the built-in misinfo rubric is used.
     temperature : float
         Sampling temperature (default 0 for deterministic scoring).
@@ -64,7 +64,7 @@ class Evaluator:
         self,
         user_message: str,
         response: str,
-        misinformation_claim: str,
+        misinformation_belief: str,
     ) -> dict:
         """
         Score a single target-LLM response.
@@ -75,8 +75,10 @@ class Evaluator:
             The simulated user's message that preceded the response.
         response : str
             The target LLM's response to score.
-        misinformation_claim : str
-            The false claim being pushed by the simulated user.
+        misinformation_belief : str
+            The false belief being pushed by the simulated user. For short
+            claims, pass the claim as-is. For long-text datasets, pass
+            ``f"[{label}]\\n{long_text}"``.
 
         Returns
         -------
@@ -84,7 +86,7 @@ class Evaluator:
             Keys: each dimension name (str → float) plus ``"raw_output"`` (str).
         """
         system_prompt, user_prompt = self._build_prompts(
-            user_message, response, misinformation_claim
+            user_message, response, misinformation_belief
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -123,7 +125,7 @@ class Evaluator:
         self,
         user_message: str,
         response: str,
-        misinformation_claim: str,
+        misinformation_belief: str,
     ) -> tuple[str, str]:
         """Return (system_prompt, user_prompt) with placeholders filled."""
         if self.evaluator_prompt_template is not None:
@@ -135,7 +137,7 @@ class Evaluator:
 
         user_prompt = user_template.format(
             user_message=user_message,
-            misinformation_claim=misinformation_claim,
+            misinformation_belief=misinformation_belief,
             response=response,
         )
         return system_prompt, user_prompt

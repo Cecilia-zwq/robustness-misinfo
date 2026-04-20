@@ -8,7 +8,7 @@ Public API
 ----------
     result = run_session(
         user_agent, target_llm, evaluator,
-        misinformation_claim, n_turns=8,
+        misinformation_belief, n_turns=8,
     )
     # result is a SessionResult dataclass with full logs and aggregate metrics.
 """
@@ -71,8 +71,10 @@ class SessionResult:
 
     Attributes
     ----------
-    misinformation_claim : str
-        The false claim being evaluated.
+    misinformation_belief : str
+        The false belief being evaluated. For short-claim datasets this is
+        the claim itself; for long-text datasets this is the formatted
+        ``[label]\\n{long_text}`` passage.
     n_turns : int
         Total number of turns in the session.
     turns : list[TurnRecord]
@@ -90,7 +92,7 @@ class SessionResult:
         message was used.
     """
 
-    misinformation_claim: str
+    misinformation_belief: str
     n_turns: int
     turns: list[TurnRecord] = field(default_factory=list)
     conversation_history: list[dict] = field(default_factory=list)
@@ -183,11 +185,11 @@ class SessionResult:
         Returns
         -------
         dict
-            Contains claim, n_turns, mean metrics, break stats, and score trajectory.
+            Contains belief, n_turns, mean metrics, break stats, and score trajectory.
         """
 
         return {
-            "misinformation_claim": self.misinformation_claim,
+            "misinformation_belief": self.misinformation_belief,
             "n_turns": self.n_turns,
             "mean_correction": round(self.mean_correction, 3),
             "mean_rebuttal": round(self.mean_rebuttal, 3),
@@ -206,15 +208,15 @@ def run_session(
     user_agent: SimulatedUserAgent,
     target_llm: TargetLLM,
     evaluator: Evaluator,
-    misinformation_claim: str,
+    misinformation_belief: str,
     n_turns: int = 8,
 ) -> SessionResult:
     """
     Run a complete multi-turn evaluation session.
 
     Orchestrates a conversation where:
-    1. The SimulatedUserAgent advocates for a misinformation claim.
-    2. The TargetLLM responds to defend against the false claim.
+    1. The SimulatedUserAgent advocates for a misinformation belief.
+    2. The TargetLLM responds to defend against the false belief.
     3. The Evaluator scores the TargetLLM's response for quality of
        correction and rebuttal.
 
@@ -224,13 +226,15 @@ def run_session(
     Parameters
     ----------
     user_agent : SimulatedUserAgent
-        The adversarial simulated user that advocates for the false claim.
+        The adversarial simulated user that advocates for the false belief.
     target_llm : TargetLLM
         The model under evaluation. Should resist the misinformation.
     evaluator : Evaluator
         Scores each target-LLM response for correction and rebuttal quality.
-    misinformation_claim : str
-        The false claim the simulated user advocates for throughout the session.
+    misinformation_belief : str
+        The false belief the simulated user advocates for throughout the
+        session. For short claims, pass the claim as-is. For long-text
+        datasets, pass ``f"[{label}]\\n{long_text}"``.
     n_turns : int, optional
         Number of conversational turns (default: 8).
         Each turn = (user message → LLM response → evaluation).
@@ -244,7 +248,7 @@ def run_session(
         - Aggregate metrics (mean correction, mean rebuttal, break stats).
     """
     result = SessionResult(
-        misinformation_claim=misinformation_claim,
+        misinformation_belief=misinformation_belief,
         n_turns=n_turns,
     )
     conversation_history: list[dict] = []
@@ -258,10 +262,10 @@ def run_session(
 
         # ─ Step 1: Simulated User generates a message ─────────────────────────
         if turn_idx == 1:
-            user_msg = user_agent.generate_opening(misinformation_claim)
+            user_msg = user_agent.generate_opening(misinformation_belief)
         else:
             user_msg = user_agent.generate_reply(
-                conversation_history, misinformation_claim
+                conversation_history, misinformation_belief
             )
 
         # Read per-call break stats from the agent (now two dimensions)
@@ -287,7 +291,7 @@ def run_session(
         scores = evaluator.evaluate(
             user_message=user_msg,
             response=target_response,
-            misinformation_claim=misinformation_claim,
+            misinformation_belief=misinformation_belief,
         )
         logger.info(
             "SCORES — correction: %.0f, rebuttal: %.0f | "

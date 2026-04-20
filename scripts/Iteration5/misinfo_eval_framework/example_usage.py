@@ -54,7 +54,7 @@ agent = SimulatedUserAgent(
     provider="openrouter",
     model="openai/gpt-4.1-mini",
     character_prompt=CHARACTER_PROMPT,
-    # is_long_text=False,  # default — uses USER_SYSTEM_PROMPT_S / FIRST_MESSAGE_PROMPT_S
+    is_long_text=True,
 )
 
 target = TargetLLM(

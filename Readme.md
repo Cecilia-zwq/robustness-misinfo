@@ -1,95 +1,157 @@
 # robustness-misinfo
 
-Repository for building misinformation-focused datasets and evaluating LLM robustness in multi-turn conversations with simulated adversarial users.
+> **Research question.** How robustly do LLMs maintain truthful corrections when a **confirmation-biased user** keeps pushing misinformation across a multi-turn conversation?
 
-## Current project status
+We study this by pitting a **simulated misinformation-leaning user** (an LLM-based agent designed to stay in character and hold a false belief) against a **target LLM**, and scoring the target’s behavior with a dedicated **evaluator**.
 
-Iteration 3 is the active framework and experiment stage in this repo. It introduces a modular pipeline with three configurable components:
+---
 
-- simulated user agent,
-- target LLM under test,
-- evaluator for correction/rebuttal quality.
+## Table of contents
+
+1. [Current status](#current-status)
+2. [Repository layout](#repository-layout)
+3. [Iteration tracker (at a glance)](#iteration-tracker-at-a-glance)
+4. [Iteration history in detail](#iteration-history-in-detail)
+5. [Datasets](#datasets)
+6. [Environment](#environment)
+7. [Conventions](#conventions)
+
+---
+
+## Current status
+
+**Active iteration: `Iteration 5`** — passage-scale misinformation, Experiment 3 validation.
+
+
+|                       | Location                                     |
+| --------------------- | -------------------------------------------- |
+| Framework code        | `scripts/Iteration5/misinfo_eval_framework/` |
+| Experiment entrypoint | `scripts/Iteration5/experiment3.py`          |
+| Latest outputs        | `results/Iteration5/`                        |
+
+
+**Collaborators: start here.** Older iterations (`Iteration1`–`Iteration4`) are preserved snapshots for reproducibility and history, not the current working system.
+
+---
 
 ## Repository layout
 
-- `data/dataset/`: core experiment datasets and curated claim sets.
-- `data/fake/`: raw fake-news source text files (`*.fake.txt`) by domain.
-- `scripts/Iteration1/`, `scripts/Iteration2/`: earlier iteration scripts.
-- `scripts/Iteration3/`: active experiment scripts and reusable evaluation framework.
-- `scripts/Iteration3/misinfo_eval_framework/`: modular framework package (user agent, target model wrapper, evaluator, session runner).
-- `notebooks/filter_data.ipynb`: dataset filtering and earlier scoring work.
-- `notebooks/Iteration1-2: testing/`: notebooks used in early-stage testing.
-- `notebooks/Iteration3: Stage 2/`: Iteration 3 planning + analysis notebook.
-- `results/Iteration2/`: archived Iteration 2 outputs.
-- `results/Iteration3/`: pilot and full Iteration 3 run outputs.
 
-## Datasets used in experiments
+| Directory    | Purpose                                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `data/`      | Curated claim sets (`data/dataset/`) and raw fake-news text (`data/fake/`).                                                                      |
+| `scripts/`   | Evaluation framework and experiment drivers, **versioned by iteration** (`Iteration1` … `Iteration5`). Each folder is a self-contained snapshot. |
+| `results/`   | Timestamped run outputs (logs, summaries, checkpoints), mirroring the iteration folders in `scripts/`.                                           |
+| `notebooks/` | Dataset filtering, inspection, and per-experiment analysis.                                                                                      |
+| `models/`    | Reserved for local model assets.                                                                                                                 |
 
-Primary files in `data/dataset/`:
 
-- `ds_bias.csv`
-  - Bias-focused misinformation statements.
-  - Typical columns: `index`, `content`, `type`, `bias_type`, `stereotyped_entity`.
+---
 
-- `ds_conspiracy.csv`
-  - Conspiracy-themed statements.
-  - Typical columns: `content`, `type`.
+## Iteration tracker
 
-- `ds_fakenews.csv`
-  - Fake-news examples with domain labels.
-  - Typical columns: `content`, `details`, `type`.
 
-- `sampled_claims.json`
-  - Curated claim subset used by Iteration 3 Experiment 1.
-  - Includes category/subtype metadata for balanced runs.
+| #   | Theme                                | Key change                                                             | Experiment                                  | Status     |
+| --- | ------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------- | ---------- |
+| 1   | Naive two-model dialogue             | Plumbing for role-played conversations                                 | —                                           | Archived   |
+| 2   | **Agentic user simulation** (Plan A) | Multi-module user: plan → act → reflect                                | —                                           | Archived   |
+| 3   | **Base framework + API**             | Package with three components: `user_agent`, `target_llm`, `evaluator` | **Experiment 1** (short claims, full-scale) | Archived   |
+| 4   | **Finer-grained reflection**         | Split reflection into *character break* + *belief break*               | **Experiment 2** (matched subset)           | Archived   |
+| 5   | **Passage-scale misinformation**     | Long-form inputs; system-prompt persona; parallel runs                 | **Experiment 3** (validation)               | **Active** |
 
-## Iteration 3 workflow
 
-Main scripts are in `scripts`. Notebooks are in `notebooks`
+Entry points inside each iteration folder follow the same convention: an `experiment*.py` driver with a usage docstring at the top, plus (from Iteration 3 on) a `misinfo_eval_framework/` package.
 
-1. `test_personas.py`
-   - Smoke test for persona behavior on a single claim.
-   - Useful for validating prompts/character-break logic before larger runs.
+---
 
-2. `pilot_test1.py`
-   - Small pilot over sampled claims and personas.
-   - Produces timestamped pilot outputs in `results/Iteration3/`.
+## Iteration history in detail
 
-3. `experiment1.py`
-   - Full run: 30 claims × 2 personas × 3 reps = 180 sessions.
-   - Writes session logs plus `summary.json`, `summary.csv`, `turn_level.csv`, and `checkpoint.json`.
-   - Supports resume with `--resume <existing_results_dir>`.
+### Why a naive two-model chat was not enough — the motivation for Iteration 2
 
-4. `experiment1_analysis.ipynb`
-   - Statistical summary and figure generation from `summary.csv` and `turn_level.csv`.
-   - Generates trajectory/distribution/interaction plots for reporting.
+Early tests showed a consistent failure mode: the simulated user was **too quick to accept the target model’s corrections** and **drifted to ground truth by the second turn**, even with an uncensored user model. In short, it **stopped pushing misinformation**.
 
-## Iteration 3 output structure
+This matches a known limitation of LLM-based personas: models **prefer to correct false claims and drop role-play** when pushed, making it hard to portray **fact-resistant** people from a prompt alone.
 
-Typical output directory:
+> Chuang, Yun-Shiuan, et al. *Simulating Opinion Dynamics with Networks of LLM-based Agents.* Findings of the ACL: NAACL 2024.
 
-`results/Iteration3/experiment1_YYYYMMDD_HHMMSS/`
+**Plan A (adopted).** Instead of a single loose prompt, steer the simulated user with **multiple modules**:
 
-- `sessions/`: one text log per session (claim x persona x rep).
-- `summary.json`: full structured run output.
-- `summary.csv`: session-level metrics.
-- `turn_level.csv`: turn-level metrics.
-- `checkpoint.json`: progress state for interrupted run recovery.
-- `analysis/` (when generated): saved figures from analysis scripts/notebooks.
+- **Planning module** — decides how to advance the misinformation goal on the next turn.
+- **Action / dialogue module** — turns that plan into the actual user message.
 
-## Notebooks currently in use
+Plan B was proposed but **never implemented**. **Iterations 2–5 all build on Plan A**; filenames like `PlanA-test0-v*.py` are legacy labels — read them as “the multi-module agentic user.”
 
-- `notebooks/filter_data.ipynb`
-- `notebooks/Iteration1-2: testing/test_dataset.ipynb`
-- `notebooks/Iteration1-2: testing/test_StrongREJECT.ipynb`
-- `notebooks/Iteration1-2: testing/test-llama2-uncensored.ipynb`
-- `notebooks/Iteration1-2: testing/test_user_simulation.ipynb`
-- `notebooks/Iteration3: Stage 2/experiment1_analysis.ipynb`
-- `notebooks/Iteration3: Stage 2/experiment_plan.md`
-- `notebooks/Iteration3: Stage 2/Stage 2.md`
+---
 
-## Environment notes
+### Iteration 1 — naive dialogue between two models
 
-- Iteration 3 uses LiteLLM-based API calling for model interaction.
-- Configure provider credentials (for example, OpenAI keys) in your environment before running scripts.
-- Analysis scripts depend on common scientific Python packages (for example: pandas, numpy, scipy, matplotlib, seaborn).
+Two models take turns, each with its own system prompt. Useful for validating APIs and prompt formats, but it **does not** solve the collapse-toward-truth problem described above.
+
+### Iteration 2 — agentic user simulation (Plan A)
+
+First working **simulated user agent**: **plan → act → reflect**, with logging, so the user keeps a **false belief** and a **stable character** rather than folding under the target’s corrections. The overall shape is the one **carried forward** into Iterations 3–5.
+
+**Deliberately set aside (to keep the baseline tractable):**
+
+- A **memory module** letting the user learn from earlier turns to attack more cleverly — dropped as too complex at this stage.
+- Rich **persuasion tactics** — deferred. The first priority is a believable user with a wrong belief and a coherent persona; **tactics are better treated later as an independent variable** in their own experiments.
+
+Code appears as several versions of one large script (`PlanA-test0-v*.py`) before being refactored in Iteration 3.
+
+### Iteration 3 — base framework and Experiment 1
+
+The Iteration 2 design is refactored into a single package, `misinfo_eval_framework`, organized around **three components with a defined API**:
+
+- `**user_agent`** — the simulated misinformation-leaning user.
+- `**target_llm**` — the model under evaluation.
+- `**evaluator**` — scores how the target responds over the dialogue.
+
+Shared **utilities** (session driver, helpers) live in the same package so the codebase is imported and run as one unit.
+
+- **Experiment 1** — the first **large end-to-end run** on curated **single-sentence claims**; pilots are in the same folder; results were **reported in the course**. Anything named *experiment 1* belongs here.
+
+### Iteration 4 — finer-grained reflection and Experiment 2
+
+Same three-part architecture as Iteration 3. The change is inside the user’s **reflection** step: Iteration 3 checked character and belief together in a single reflection; Iteration 4 **splits them into two explicit dimensions** — **character break** and **belief break** — for more granular diagnosis of where the persona slips.
+
+- **Experiment 2** — confirms the stack still runs end-to-end with the split reflection. Uses **short claims** and a **matched subset** so results stay comparable to Experiment 1. **Result: it works.**
+
+### Iteration 5 — passage-scale misinformation and Experiment 3 *(current)*
+
+Iterations 3 and 4 targeted **single-sentence claims**. Iteration 5 **extends Iteration 4** so the framework can stress-test **richer inputs** — **multi-sentence or passage-length** misinformation (e.g., fake-news-style text), not only atomic claims.
+
+Implementation notes:
+
+- **Persona and belief** are delivered via **system-level instructions** for cleaner wiring.
+- **Parallel execution** (ThreadPoolExecutor) for throughput on larger runs.
+- **Ablation helpers** can load the Iteration 4 package side-by-side for controlled comparisons.
+- **Experiment 3** — validates the long-text extension. Once validated, **long-text support is the maintained direction**.
+
+---
+
+## Datasets
+
+Inputs live in `data/dataset/`:
+
+- **Short-claim sets** — bias and conspiracy items (e.g., `sampled_claims.json`) used by Experiments 1 and 2.
+- **Long-form fake-news text** — multi-sentence / passage-length items used by Experiment 3.
+
+Raw source text sits under `data/fake/`; curation and filtering notebooks are in `notebooks/`.
+
+---
+
+## Environment
+
+- **API routing.** Iterations 3+ use **LiteLLM**; set the relevant provider credentials (e.g., `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) in the environment before running.
+- **Python.** Standard scientific stack for analysis: `pandas`, `numpy`, `scipy`, `matplotlib`, `seaborn`.
+- **Ignored locally.** `.claude/` and `.vscode/` are listed in `.gitignore`.
+
+---
+
+## Conventions
+
+- **One iteration = one self-contained snapshot** under `scripts/IterationN/`, with its outputs under `results/IterationN/`.
+- **Experiment naming follows iterations:** Experiment 1 ↔ Iteration 3, Experiment 2 ↔ Iteration 4, Experiment 3 ↔ Iteration 5.
+- **Runnable entrypoints** are `experiment*.py` files; their **module docstring is the source of truth** for flags, paths, and output layout.
+- **Resumable runs.** Experiment drivers write incremental `summary.json`, `summary.csv`, `turn_level.csv`, and `checkpoint.json`, and support `--resume <existing_results_dir>`.
+

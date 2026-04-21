@@ -53,15 +53,27 @@ Parallelism notes
   - All file writes and in-memory aggregation happen on the main thread
     in the as_completed() consumer loop, under a lock. Workers only
     write their own per-session .txt log (no contention).
-  - Incremental saves happen after every completed session. Crash + resume
-    loses at most one session's worth of work.
-  - Ctrl+C triggers clean shutdown; already-saved state remains valid.
+  - All snapshot writes (summary.json, summary.csv, turn_level.csv,
+    checkpoint.json) are atomic: payloads are built in memory, written
+    to a sibling `.tmp` file, fsync'd, and renamed onto the final path.
+    Crashes can never leave a truncated/half-written file.
+  - On resume, load_previous_results() cross-checks summary.json against
+    turn_level.csv and evicts any session that doesn't have a complete
+    record in both files. This catches interleaved-write corruption that
+    could otherwise cause silent turn-level data loss.
+  - Ctrl+C triggers fast cancellation: queued futures are cancelled
+    immediately (threads can't be preempted, so in-flight workers run
+    to completion, but we stop waiting on them); already-completed
+    futures are drained so their work isn't lost; state is then
+    persisted. A second Ctrl+C force-exits without draining.
 """
 
 import argparse
 import csv
+import io
 import json
 import logging
+import os
 import random
 import threading
 import time
@@ -209,7 +221,7 @@ def load_short_claims(claims_path: Path) -> list[dict]:
 
 
 def load_fakenews(
-    fakenews_path: Path, n_sample: int, seed: int,
+    fakenews_path: Path, n_sample: int | None, seed: int,
 ) -> list[dict]:
     """
     Load and sample long-text fake-news passages from ds_fakenews.csv.
@@ -238,7 +250,7 @@ def load_fakenews(
     df = df.dropna(subset=["content", "details"]).copy()
     df = df[df["details"].astype(str).str.strip().str.len() > 0].reset_index(drop=True)
 
-    if n_sample >= len(df):
+    if n_sample is None or n_sample >= len(df):
         sampled = df
     else:
         sampled = df.sample(n=n_sample, random_state=seed).reset_index(drop=True)
@@ -340,18 +352,28 @@ def compute_derived_metrics(summary: dict) -> dict:
     trajectory = summary["score_trajectory"]
     extras = {}
 
+    valid_corr = [
+        t
+        for t in trajectory
+        if not t["is_fallback"] and t.get("correction") is not None and t.get("correction") != -1
+    ]
+    valid_rebt = [
+        t
+        for t in trajectory
+        if not t["is_fallback"] and t.get("rebuttal") is not None and t.get("rebuttal") != -1
+    ]
+
     # Sycophancy onset turn
     onset = None
-    for t in trajectory:
-        if not t["is_fallback"] and t["correction"] <= SYCOPHANCY_THRESHOLD:
+    for t in valid_corr:
+        if t["correction"] <= SYCOPHANCY_THRESHOLD:
             onset = t["turn"]
             break
     extras["sycophancy_onset_turn"] = onset
 
     # Min correction and its turn
-    non_fb = [t for t in trajectory if not t["is_fallback"]]
-    if non_fb:
-        min_t = min(non_fb, key=lambda t: t["correction"])
+    if valid_corr:
+        min_t = min(valid_corr, key=lambda t: t["correction"])
         extras["min_correction"] = min_t["correction"]
         extras["min_correction_turn"] = min_t["turn"]
     else:
@@ -359,14 +381,18 @@ def compute_derived_metrics(summary: dict) -> dict:
         extras["min_correction_turn"] = None
 
     # Linear trend (slope)
-    if len(non_fb) >= 2:
-        turns = np.array([t["turn"] for t in non_fb], dtype=float)
-        corr = np.array([t["correction"] for t in non_fb], dtype=float)
-        rebt = np.array([t["rebuttal"] for t in non_fb], dtype=float)
-        extras["correction_trend"] = round(float(np.polyfit(turns, corr, 1)[0]), 4)
-        extras["rebuttal_trend"] = round(float(np.polyfit(turns, rebt, 1)[0]), 4)
+    if len(valid_corr) >= 2:
+        turns_corr = np.array([t["turn"] for t in valid_corr], dtype=float)
+        corr = np.array([t["correction"] for t in valid_corr], dtype=float)
+        extras["correction_trend"] = round(float(np.polyfit(turns_corr, corr, 1)[0]), 4)
     else:
         extras["correction_trend"] = None
+
+    if len(valid_rebt) >= 2:
+        turns_rebt = np.array([t["turn"] for t in valid_rebt], dtype=float)
+        rebt = np.array([t["rebuttal"] for t in valid_rebt], dtype=float)
+        extras["rebuttal_trend"] = round(float(np.polyfit(turns_rebt, rebt, 1)[0]), 4)
+    else:
         extras["rebuttal_trend"] = None
 
     return extras
@@ -510,27 +536,56 @@ def write_session_log(
 
 # ════════════════════════════════════════════════════════════════════════════
 # Checkpoint + incremental file writers
+#
+# All writes are atomic: the full payload is built in memory, written to a
+# sibling .tmp file, fsync'd, and then os.replace()'d onto the final path.
+# os.replace() is atomic on POSIX and on Windows (Python 3.3+). This means:
+#
+#   - A file on disk is always either its previous fully-written state or its
+#     new fully-written state — never a truncated half-write.
+#   - A crash mid-save_snapshot() leaves some of the four files as "old
+#     state" and some as "new state". load_previous_results() tolerates that
+#     via the cross-file consistency check (see below).
 # ════════════════════════════════════════════════════════════════════════════
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` to `path` atomically via tmp-file + os.replace."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Ensure parent exists (harmless if it already does).
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+        f.flush()
+        # fsync so the bytes are on disk before the rename, not just in the
+        # page cache. Otherwise a power loss between write() and rename
+        # could leave the target pointing at empty content.
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            # Some filesystems (e.g. certain network mounts) don't support
+            # fsync. Best-effort: the os.replace is still atomic with
+            # respect to crashes of this process.
+            pass
+    os.replace(tmp, path)
+
 
 def save_checkpoint(
     results_dir: Path, completed: list[str], failed: list[dict],
 ) -> None:
-    ckpt_path = results_dir / "checkpoint.json"
-    with open(ckpt_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "completed": completed,
-                "failed": [
-                    {"session_id": fs["session_id"], "error": fs["error"]}
-                    for fs in failed
-                ],
-                "last_updated": datetime.now().isoformat(),
-                "n_completed": len(completed),
-                "n_failed": len(failed),
-            },
-            f,
-            indent=2,
-        )
+    payload = {
+        "completed": completed,
+        "failed": [
+            {"session_id": fs["session_id"], "error": fs["error"]}
+            for fs in failed
+        ],
+        "last_updated": datetime.now().isoformat(),
+        "n_completed": len(completed),
+        "n_failed": len(failed),
+    }
+    _atomic_write_text(
+        results_dir / "checkpoint.json",
+        json.dumps(payload, indent=2),
+    )
 
 
 def save_summary_json(
@@ -543,65 +598,62 @@ def save_summary_json(
     t_start: float,
     n_workers: int,
 ) -> None:
-    json_path = results_dir / "summary.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "experiment": "experiment3",
-                "config": {
-                    "provider": PROVIDER,
-                    "model": MODEL,
-                    "n_turns": N_TURNS,
-                    "n_reps": N_REPS,
-                    "sycophancy_threshold": SYCOPHANCY_THRESHOLD,
-                    "claims_path": str(CLAIMS_PATH),
-                    "fakenews_path": str(FAKENEWS_PATH),
-                    "n_items_total": len(all_items),
-                    "n_items_subset": len(subset_indices),
-                    "subset_item_indices": subset_indices,
-                    "n_per_category": SUBSET_N_PER_CATEGORY,
-                    "n_sessions_planned": total_planned,
-                    "n_sessions_completed": len(all_results),
-                    "n_sessions_failed": len(failed_sessions),
-                    "n_workers": n_workers,
-                    "total_runtime_minutes": round(
-                        (time.time() - t_start) / 60, 2
-                    ),
-                    "last_updated": datetime.now().isoformat(),
-                    "change_from_exp2": (
-                        "Iteration 5 architecture: belief delivered via system "
-                        "prompt, long-text support via is_long_text flag, "
-                        "OpenRouter provider, parallel execution."
-                    ),
-                },
-                "items": all_items,
-                "results": all_results,
-                "failed_sessions": failed_sessions,
-            },
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
+    payload = {
+        "experiment": "experiment3",
+        "config": {
+            "provider": PROVIDER,
+            "model": MODEL,
+            "n_turns": N_TURNS,
+            "n_reps": N_REPS,
+            "sycophancy_threshold": SYCOPHANCY_THRESHOLD,
+            "claims_path": str(CLAIMS_PATH),
+            "fakenews_path": str(FAKENEWS_PATH),
+            "n_items_total": len(all_items),
+            "n_items_subset": len(subset_indices),
+            "subset_item_indices": subset_indices,
+            "n_per_category": SUBSET_N_PER_CATEGORY,
+            "n_sessions_planned": total_planned,
+            "n_sessions_completed": len(all_results),
+            "n_sessions_failed": len(failed_sessions),
+            "n_workers": n_workers,
+            "total_runtime_minutes": round(
+                (time.time() - t_start) / 60, 2
+            ),
+            "last_updated": datetime.now().isoformat(),
+            "change_from_exp2": (
+                "Iteration 5 architecture: belief delivered via system "
+                "prompt, long-text support via is_long_text flag, "
+                "OpenRouter provider, parallel execution."
+            ),
+        },
+        "items": all_items,
+        "results": all_results,
+        "failed_sessions": failed_sessions,
+    }
+    _atomic_write_text(
+        results_dir / "summary.json",
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
 
 
 def save_summary_csv(results_dir: Path, all_results: list[dict]) -> None:
-    csv_path = results_dir / "summary.csv"
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f, fieldnames=SESSION_CSV_FIELDS, extrasaction="ignore"
-        )
-        writer.writeheader()
-        writer.writerows(all_results)
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf, fieldnames=SESSION_CSV_FIELDS, extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(all_results)
+    _atomic_write_text(results_dir / "summary.csv", buf.getvalue())
 
 
 def save_turn_level_csv(results_dir: Path, turn_rows: list[dict]) -> None:
-    csv_path = results_dir / "turn_level.csv"
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f, fieldnames=TURN_CSV_FIELDS, extrasaction="ignore"
-        )
-        writer.writeheader()
-        writer.writerows(turn_rows)
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf, fieldnames=TURN_CSV_FIELDS, extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(turn_rows)
+    _atomic_write_text(results_dir / "turn_level.csv", buf.getvalue())
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -635,36 +687,126 @@ def build_session_manifest(
 
 def load_previous_results(
     results_dir: Path,
+    expected_n_turns: int,
 ) -> tuple[list[dict], list[dict], list[dict]]:
-    """Load previously saved results for resume."""
-    all_results = []
-    turn_rows = []
-    failed_sessions = []
+    """
+    Load previously saved results for resume, with cross-file consistency check.
 
+    A session is only considered "done" if:
+      (a) it appears in summary.json["results"], AND
+      (b) it has exactly `expected_n_turns` rows in turn_level.csv.
+
+    Sessions that appear in only one of the two files (e.g. because a crash
+    interleaved the saves) are evicted from both and will be re-run. This
+    prevents silent turn-level data loss when a partial write corrupts the
+    cross-file invariant.
+
+    summary.json is considered authoritative for the non-turn fields. If it
+    is missing or corrupt, we treat the resume dir as empty and start fresh —
+    but we keep any salvageable files next to the corrupt one for forensics.
+    """
+    all_results: list[dict] = []
+    turn_rows: list[dict] = []
+    failed_sessions: list[dict] = []
+
+    # ── Step 1: load summary.json (authoritative for session records) ────
     json_path = results_dir / "summary.json"
     if json_path.exists():
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        all_results = data.get("results", [])
-        failed_sessions = data.get("failed_sessions", [])
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            all_results = data.get("results", [])
+            failed_sessions = data.get("failed_sessions", [])
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(
+                "summary.json is corrupt or unreadable (%s). Renaming to "
+                "summary.json.corrupt and starting with empty state. "
+                "Any session logs in sessions/ are preserved for forensics.",
+                e,
+            )
+            try:
+                os.replace(json_path, json_path.with_suffix(".json.corrupt"))
+            except OSError:
+                pass
+            return [], [], []
 
+    # ── Step 2: load turn_level.csv ──────────────────────────────────────
     turn_csv = results_dir / "turn_level.csv"
     if turn_csv.exists():
-        with open(turn_csv, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                row["claim_idx"] = int(row["claim_idx"])
-                row["rep"] = int(row["rep"])
-                row["turn"] = int(row["turn"])
-                row["correction"] = float(row["correction"])
-                row["rebuttal"] = float(row["rebuttal"])
-                row["character_breaks"] = int(row["character_breaks"])
-                row["belief_breaks"] = int(row["belief_breaks"])
-                row["is_fallback"] = row["is_fallback"] == "True"
-                row["is_long_text"] = row["is_long_text"] == "True"
-                turn_rows.append(row)
+        try:
+            with open(turn_csv, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    row["claim_idx"] = int(row["claim_idx"])
+                    row["rep"] = int(row["rep"])
+                    row["turn"] = int(row["turn"])
+                    row["correction"] = float(row["correction"])
+                    row["rebuttal"] = float(row["rebuttal"])
+                    row["character_breaks"] = int(row["character_breaks"])
+                    row["belief_breaks"] = int(row["belief_breaks"])
+                    row["is_fallback"] = row["is_fallback"] == "True"
+                    row["is_long_text"] = row["is_long_text"] == "True"
+                    turn_rows.append(row)
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning(
+                "turn_level.csv is unreadable (%s). Treating turn rows as "
+                "empty; all sessions will be re-run to regenerate turns.", e,
+            )
+            turn_rows = []
+
+    # ── Step 3: cross-file consistency check ─────────────────────────────
+    summary_ids = {r["session_id"] for r in all_results}
+    turn_ids_full = {
+        sid for sid in summary_ids
+        if sum(1 for t in turn_rows if t["session_id"] == sid) == expected_n_turns
+    }
+
+    # Sessions that summary.json claims are done, but turn_level.csv does
+    # not fully agree with — these are the victims of an interleaved write.
+    inconsistent = summary_ids - turn_ids_full
+    if inconsistent:
+        logger.warning(
+            "Cross-file inconsistency: %d session(s) in summary.json lack a "
+            "full turn-row set in turn_level.csv. Evicting and re-running: %s",
+            len(inconsistent),
+            sorted(inconsistent),
+        )
+        all_results = [r for r in all_results if r["session_id"] not in inconsistent]
+        turn_rows = [t for t in turn_rows if t["session_id"] not in inconsistent]
+
+    # Symmetric case: turn rows exist for a session that isn't in summary.json
+    # at all. Drop those orphan rows — the session will be re-run and will
+    # contribute fresh rows.
+    orphan_turn_ids = {t["session_id"] for t in turn_rows} - summary_ids
+    if orphan_turn_ids:
+        logger.warning(
+            "Cross-file inconsistency: %d session(s) have turn rows but no "
+            "summary.json entry. Dropping orphan rows: %s",
+            len(orphan_turn_ids),
+            sorted(orphan_turn_ids),
+        )
+        turn_rows = [t for t in turn_rows if t["session_id"] not in orphan_turn_ids]
 
     return all_results, turn_rows, failed_sessions
+
+
+def _cleanup_stale_tmp_files(results_dir: Path) -> None:
+    """
+    Remove any leftover `.tmp` files from a previous interrupted save.
+
+    _atomic_write_text writes to `name.tmp` then renames. If the process died
+    between the tmp write and the rename, a stale tmp file is left behind.
+    It's not harmful (the real file still holds the previous complete state)
+    but cleaning up keeps the results dir tidy.
+    """
+    if not results_dir.exists():
+        return
+    for p in results_dir.iterdir():
+        if p.is_file() and p.name.endswith(".tmp"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -827,15 +969,21 @@ def run_experiment(resume_dir: str | None, n_workers: int):
     session_dir = results_dir / "sessions"
     session_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean up any stale .tmp files from a prior crash before we touch anything.
+    # The real files still hold the previous complete state; the .tmp files
+    # are harmless leftovers.
+    _cleanup_stale_tmp_files(results_dir)
+
     print(f"\n  Parallel workers: {n_workers}\n")
 
     # ── Load all items: short claims + long-text fake news ───────────────
     short_claims = load_short_claims(CLAIMS_PATH)
     print(f"Loaded {len(short_claims)} short claims from {CLAIMS_PATH.name}.\n")
 
+    fake_n = SUBSET_N_PER_CATEGORY if SUBSET_N_PER_CATEGORY is not None else None
     fakenews_entries = load_fakenews(
         FAKENEWS_PATH,
-        n_sample=(SUBSET_N_PER_CATEGORY or 5),
+        n_sample=fake_n,
         seed=SEED,
     )
     print(f"Sampled {len(fakenews_entries)} fake-news passages from {FAKENEWS_PATH.name}.\n")
@@ -870,7 +1018,7 @@ def run_experiment(resume_dir: str | None, n_workers: int):
     # ── Load previous state if resuming ──────────────────────────────────
     if resume_dir:
         all_results, turn_rows, failed_sessions = load_previous_results(
-            results_dir
+            results_dir, expected_n_turns=N_TURNS,
         )
         completed_ids = {r["session_id"] for r in all_results}
         done_ids = completed_ids
@@ -918,61 +1066,126 @@ def run_experiment(resume_dir: str | None, n_workers: int):
         )
 
     n_consumed = 0
+    # Outside the try so it's visible in the except/finally blocks.
+    pool = ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="sess")
+    future_to_entry: dict = {}
+    interrupted = False
+
     try:
-        with ThreadPoolExecutor(max_workers=n_workers,
-                                thread_name_prefix="sess") as pool:
-            future_to_entry = {
-                pool.submit(run_one_session, entry, session_dir): entry
-                for entry in remaining
-            }
+        future_to_entry = {
+            pool.submit(run_one_session, entry, session_dir): entry
+            for entry in remaining
+        }
 
-            for fut in as_completed(future_to_entry):
-                n_consumed += 1
-                entry = future_to_entry[fut]
+        for fut in as_completed(future_to_entry):
+            n_consumed += 1
+            entry = future_to_entry[fut]
 
-                # Should not raise because run_one_session catches — but just in case.
+            # Should not raise because run_one_session catches — but just in case.
+            try:
+                result = fut.result()
+            except Exception as e:
+                result = {
+                    "status": "error",
+                    "session_id": entry["session_id"],
+                    "item_idx": entry["item_idx"],
+                    "persona_label": entry["persona_label"],
+                    "rep": entry["rep"],
+                    "error": f"worker crashed: {e}",
+                    "traceback": traceback.format_exc(),
+                }
+
+            session_id = result["session_id"]
+            # Display counter: we use len(done_ids) + n_consumed so that
+            # retries (which replace prior failures) don't overshoot `total`.
+            # n_consumed is the count of completions we've processed so far
+            # in this run (including the current one).
+            n_total_done = min(len(done_ids) + n_consumed, total)
+            elapsed = time.time() - t_start
+            rate = elapsed / n_consumed if n_consumed > 0 else 0
+            eta = rate * (len(remaining) - n_consumed)
+
+            with save_lock:
+                # Drop any prior failure record for this session (retry case).
+                failed_sessions = [
+                    fs for fs in failed_sessions
+                    if fs["session_id"] != session_id
+                ]
+
+                if result["status"] == "ok":
+                    all_results.append(result["session_record"])
+                    turn_rows.extend(result["turn_rows"])
+                    summary = result["summary"]
+                    print(
+                        f"  [{n_total_done}/{total}] ✓ {session_id}  "
+                        f"corr={summary['mean_correction']:.2f}  "
+                        f"rebt={summary['mean_rebuttal']:.2f}  "
+                        f"char_brk={summary['n_character_breaks_total']}  "
+                        f"bel_brk={summary['n_belief_breaks_total']}  "
+                        f"| elapsed {elapsed/60:.1f}min  ETA {eta/60:.1f}min"
+                    )
+                else:
+                    failed_sessions.append(
+                        {
+                            "session_id": session_id,
+                            "error": result["error"],
+                            "claim_idx": result["item_idx"],
+                            "persona": result["persona_label"],
+                            "rep": result["rep"],
+                        }
+                    )
+                    print(
+                        f"  [{n_total_done}/{total}] ✗ {session_id}  "
+                        f"FAILED: {result['error'][:80]}  "
+                        f"| elapsed {elapsed/60:.1f}min"
+                    )
+                    # Print the traceback to aid debugging. Kept inside
+                    # the lock so it appears next to its session line.
+                    print(result.get("traceback", ""))
+
+                # Persist immediately after every session. Resume is
+                # accurate even if the process is killed mid-run.
+                persist()
+
+    except KeyboardInterrupt:
+        # First Ctrl+C: cancel anything still queued, then try to drain
+        # already-completed futures so we don't lose work that finished
+        # between the interrupt and the cancel. A second Ctrl+C during
+        # drain will break out immediately and force-shutdown.
+        interrupted = True
+        print(
+            "\n\n*** KeyboardInterrupt — cancelling queued sessions, "
+            "draining in-flight completions, and saving state. "
+            "Press Ctrl+C again to force-exit without draining. ***\n"
+        )
+        # Cancel queued futures immediately. In-flight workers keep running
+        # because threads can't be preempted, but we stop waiting on them.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+        try:
+            # Drain any futures that already completed (their .done() is True)
+            # so their work isn't wasted. We do NOT call fut.result() on
+            # unfinished futures — that would block.
+            drained = 0
+            for fut, entry in future_to_entry.items():
+                if not fut.done():
+                    continue
+                if fut.cancelled():
+                    continue
                 try:
-                    result = fut.result()
-                except Exception as e:
-                    result = {
-                        "status": "error",
-                        "session_id": entry["session_id"],
-                        "item_idx": entry["item_idx"],
-                        "persona_label": entry["persona_label"],
-                        "rep": entry["rep"],
-                        "error": f"worker crashed: {e}",
-                        "traceback": traceback.format_exc(),
-                    }
-
+                    result = fut.result(timeout=0)
+                except Exception:
+                    continue  # crashed future; skip silently during shutdown
                 session_id = result["session_id"]
-                # Display counter: we use len(done_ids) + n_consumed so that
-                # retries (which replace prior failures) don't overshoot `total`.
-                # n_consumed is the count of completions we've processed so far
-                # in this run (including the current one).
-                n_total_done = min(len(done_ids) + n_consumed, total)
-                elapsed = time.time() - t_start
-                rate = elapsed / n_consumed if n_consumed > 0 else 0
-                eta = rate * (len(remaining) - n_consumed)
-
+                # Skip ones we already consumed in the main loop.
+                if any(r["session_id"] == session_id for r in all_results):
+                    continue
+                if any(fs["session_id"] == session_id for fs in failed_sessions):
+                    continue
                 with save_lock:
-                    # Drop any prior failure record for this session (retry case).
-                    failed_sessions = [
-                        fs for fs in failed_sessions
-                        if fs["session_id"] != session_id
-                    ]
-
                     if result["status"] == "ok":
                         all_results.append(result["session_record"])
                         turn_rows.extend(result["turn_rows"])
-                        summary = result["summary"]
-                        print(
-                            f"  [{n_total_done}/{total}] ✓ {session_id}  "
-                            f"corr={summary['mean_correction']:.2f}  "
-                            f"rebt={summary['mean_rebuttal']:.2f}  "
-                            f"char_brk={summary['n_character_breaks_total']}  "
-                            f"bel_brk={summary['n_belief_breaks_total']}  "
-                            f"| elapsed {elapsed/60:.1f}min  ETA {eta/60:.1f}min"
-                        )
                     else:
                         failed_sessions.append(
                             {
@@ -983,25 +1196,26 @@ def run_experiment(resume_dir: str | None, n_workers: int):
                                 "rep": result["rep"],
                             }
                         )
-                        print(
-                            f"  [{n_total_done}/{total}] ✗ {session_id}  "
-                            f"FAILED: {result['error'][:80]}  "
-                            f"| elapsed {elapsed/60:.1f}min"
-                        )
-                        # Print the traceback to aid debugging. Kept inside
-                        # the lock so it appears next to its session line.
-                        print(result.get("traceback", ""))
+                    drained += 1
+            if drained:
+                print(f"  Drained {drained} completed session(s) before shutdown.")
+        except KeyboardInterrupt:
+            print("  Second Ctrl+C — skipping drain.")
 
-                    # Persist immediately after every session. Resume is
-                    # accurate even if the process is killed mid-run.
-                    persist()
-
-    except KeyboardInterrupt:
-        print("\n\n*** KeyboardInterrupt — shutting down workers. "
-              "Saved state is valid; resume with --resume <dir>. ***\n")
+        # Persist final state. Atomic writes guarantee consistency even if
+        # the user hits Ctrl+C a third time mid-save.
         with save_lock:
             persist()
+        print(
+            f"\n  Saved state: {len(all_results)} completed, "
+            f"{len(failed_sessions)} failed. "
+            f"Resume with --resume {results_dir}\n"
+        )
         raise
+    finally:
+        # Ensure the pool is shut down in all exit paths. If we already
+        # shut down in the except branch, this is a no-op.
+        pool.shutdown(wait=not interrupted)
 
     # ── Final summary ────────────────────────────────────────────────────
     total_time = (time.time() - t_start) / 60

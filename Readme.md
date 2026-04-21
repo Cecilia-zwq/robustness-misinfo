@@ -1,6 +1,6 @@
 # robustness-misinfo
 
-> **Research question.** How robustly do LLMs maintain truthful corrections when a **confirmation-biased user** keeps pushing misinformation across a multi-turn conversation?
+> **Research question.** How robust are LLMs in resisting misinformation across a multi-turn interaction?
 
 We study this by pitting a **simulated misinformation-leaning user** (an LLM-based agent designed to stay in character and hold a false belief) against a **target LLM**, and scoring the target’s behavior with a dedicated **evaluator**.
 

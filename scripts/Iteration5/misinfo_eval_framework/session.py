@@ -280,12 +280,12 @@ def run_session(
             result.n_breaks_fallback += 1
 
         conversation_history.append({"role": "user", "content": user_msg})
-        logger.info("USER: %s", user_msg)
+        # logger.info("USER: %s", user_msg)
 
         # ─ Step 2: Target LLM responds ────────────────────────────────────────
         target_response = target_llm.respond(conversation_history)
         conversation_history.append({"role": "assistant", "content": target_response})
-        logger.info("TARGET: %s", target_response[:240])
+        # logger.info("TARGET: %s", target_response[:240])
 
         # ─ Step 3: Evaluator scores the response ─────────────────────────────
         scores = evaluator.evaluate(

@@ -131,12 +131,30 @@ Implementation notes:
 
 ## Datasets
 
-Inputs live in `data/dataset/`:
+All processed inputs live in `data/dataset/`. Two formats:
 
-- **Short-claim sets** — bias and conspiracy items (e.g., `sampled_claims.json`) used by Experiments 1 and 2.
-- **Long-form fake-news text** — multi-sentence / passage-length items used by Experiment 3.
+- **Short-claim** — single-sentence misinformation items, schema `(content, type)` (plus extras for `ds_bias`).
+- **Long-text** — passage-scale misinformation items with a body, schema `(title, content, type)`, where `title` is the headline (display label) and `content` is the multi-sentence body (the long-text belief).
 
-Raw source text sits under `data/fake/`; curation and filtering notebooks are in `notebooks/`.
+Raw source text and per-source cleaning notebooks sit under their own `data/<source>/` folders; the consolidation pass is in `notebooks/dataset_process.ipynb`.
+
+### Short-claim datasets
+
+| File | Rows | Columns | Subtypes (`type`) |
+|---|---|---|---|
+| `ds_bias.csv` | 72 | `index, content, type, bias_type, stereotyped_entity` | `declaration`, `description` |
+| `ds_conspiracy.csv` | 59 | `content, type` | `government malfeasance`, `personal wellbeing`, `malevolent global conspiracy`, `control of information`, `extraterrestrial cover-up` |
+| `ds_fibvid.csv` | 430 | `content, type` | `political_general`, `race_protest_police`, `economy_taxes_jobs`, `elections_voting`, `immigration_religion`, `covid_health`, `media_censorship`, `guns_violence`, `conspiracy` |
+| `ds_climatefever.csv` | 253 | `content, type` | `co2_emissions`, `temperature_warming`, `ice_sea_polar`, `general_climate_denial`, `extreme_weather`, `policy_energy`, `climate_science` |
+
+`ds_bias.csv` additionally exposes `bias_type` (13 stereotype attributes: `gender`, `age`, `political`, `regional-person`, `physical-appearance`, `urbanity`, `ethnicity`, `disability`, `region`, `sexual-orientation`, and combinations) and `stereotyped_entity`.
+
+### Long-text datasets
+
+| File | Rows | Columns | Subtypes (`type`) |
+|---|---|---|---|
+| `ds_fakenews.csv` | 240 | `title, content, type` | `business`, `education`, `entertainment`, `politics`, `sports`, `technology` (40 each) |
+| `ds_fakehealth.csv` | 743 | `title, content, type` | `general_health`, `cancer`, `diagnostics_devices_drugs`, `lifestyle_diet_alt_med`, `chronic_disease`, `neurological`, `cardiovascular`, `mental_health`, `womens_reproductive_health`, `infectious_disease` |
 
 ---
 

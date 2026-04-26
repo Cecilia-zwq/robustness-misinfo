@@ -226,8 +226,8 @@ def load_fakenews(
     """
     Load and sample long-text fake-news passages from ds_fakenews.csv.
 
-    The CSV schema is ["content", "details", "type"] with ~240 rows.
-    content = headline (used as label), details = multi-sentence body text.
+    The CSV schema is ["title", "content", "type"] with ~240 rows.
+    title = headline (used as display label), content = multi-sentence body text.
 
     Normalized into the same dict shape as the short-claim entries:
       - content:  headline (used as display/analysis label)
@@ -237,7 +237,7 @@ def load_fakenews(
       - category: always "fake_news"
     """
     df = pd.read_csv(fakenews_path)
-    required_cols = {"content", "details", "type"}
+    required_cols = {"title", "content", "type"}
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(
@@ -245,10 +245,10 @@ def load_fakenews(
             f"Found: {list(df.columns)}"
         )
 
-    # Drop rows with missing/empty details since those won't form coherent
+    # Drop rows with missing/empty body since those won't form coherent
     # long-text beliefs.
-    df = df.dropna(subset=["content", "details"]).copy()
-    df = df[df["details"].astype(str).str.strip().str.len() > 0].reset_index(drop=True)
+    df = df.dropna(subset=["title", "content"]).copy()
+    df = df[df["content"].astype(str).str.strip().str.len() > 0].reset_index(drop=True)
 
     if n_sample is None or n_sample >= len(df):
         sampled = df
@@ -259,9 +259,9 @@ def load_fakenews(
     for _, row in sampled.iterrows():
         entries.append(
             {
-                "content": str(row["content"]).strip(),
+                "content": str(row["title"]).strip(),
                 "subtype": str(row["type"]).strip() if pd.notna(row["type"]) else "",
-                "long_text": str(row["details"]).strip(),
+                "long_text": str(row["content"]).strip(),
                 "is_long_text": True,
                 "category": "fake_news",
             }
@@ -331,8 +331,8 @@ def build_belief_and_claim_fields(item: dict) -> tuple[str, str]:
         long   → f"[{headline}]\n{body}"
     - claim_display is the human-readable summary stored in CSV/JSON:
         short  → the content
-        long   → the headline (content) — details are preserved in summary.json
-                 via the item record, so the CSV doesn't need the full body.
+        long   → the headline (title) — the full body is preserved in summary.json
+                 via the item record, so the CSV doesn't need it inline.
     """
     if item.get("is_long_text"):
         belief = f"[{item['content']}]\n{item['long_text']}"
@@ -449,7 +449,7 @@ def write_session_log(
         f.write(f"Long-text      : {is_long}\n")
         f.write(f"Headline/claim : {item_info['content']}\n")
         if is_long:
-            f.write(f"Body (details) : {item_info.get('long_text', '')[:500]}")
+            f.write(f"Body           : {item_info.get('long_text', '')[:500]}")
             if len(item_info.get("long_text", "")) > 500:
                 f.write(" …[truncated]")
             f.write("\n")

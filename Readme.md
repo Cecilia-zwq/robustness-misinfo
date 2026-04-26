@@ -22,20 +22,17 @@ We study this by pitting a **simulated misinformation-leaning user** (an LLM-bas
 
 **Active iteration: `Iteration 5`** — passage-scale misinformation, Experiment 3 validation.
 
-
 |                       | Location                                     |
 | --------------------- | -------------------------------------------- |
 | Framework code        | `scripts/Iteration5/misinfo_eval_framework/` |
 | Experiment entrypoint | `scripts/Iteration5/experiment3.py`          |
 | Latest outputs        | `results/Iteration5/`                        |
 
-
 **Collaborators: start here.** Older iterations (`Iteration1`–`Iteration4`) are preserved snapshots for reproducibility and history, not the current working system.
 
 ---
 
 ## Repository layout
-
 
 | Directory    | Purpose                                                                                                                                          |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -45,20 +42,17 @@ We study this by pitting a **simulated misinformation-leaning user** (an LLM-bas
 | `notebooks/` | Dataset filtering, inspection, and per-experiment analysis.                                                                                      |
 | `models/`    | Reserved for local model assets.                                                                                                                 |
 
-
 ---
 
 ## Iteration tracker
-
 
 | #   | Theme                                | Key change                                                             | Experiment                                  | Status     |
 | --- | ------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------- | ---------- |
 | 1   | Naive two-model dialogue             | Plumbing for role-played conversations                                 | —                                           | Archived   |
 | 2   | **Agentic user simulation** (Plan A) | Multi-module user: plan → act → reflect                                | —                                           | Archived   |
 | 3   | **Base framework + API**             | Package with three components: `user_agent`, `target_llm`, `evaluator` | **Experiment 1** (short claims, full-scale) | Archived   |
-| 4   | **Finer-grained reflection**         | Split reflection into *character break* + *belief break*               | **Experiment 2** (matched subset)           | Archived   |
+| 4   | **Finer-grained reflection**         | Split reflection into _character break_ + _belief break_               | **Experiment 2** (matched subset)           | Archived   |
 | 5   | **Passage-scale misinformation**     | Long-form inputs; system-prompt persona; parallel runs                 | **Experiment 3** (validation)               | **Active** |
-
 
 Entry points inside each iteration folder follow the same convention: an `experiment*.py` driver with a usage docstring at the top, plus (from Iteration 3 on) a `misinfo_eval_framework/` package.
 
@@ -72,7 +66,7 @@ Early tests showed a consistent failure mode: the simulated user was **too quick
 
 This matches a known limitation of LLM-based personas: models **prefer to correct false claims and drop role-play** when pushed, making it hard to portray **fact-resistant** people from a prompt alone.
 
-> Chuang, Yun-Shiuan, et al. *Simulating Opinion Dynamics with Networks of LLM-based Agents.* Findings of the ACL: NAACL 2024.
+> Chuang, Yun-Shiuan, et al. _Simulating Opinion Dynamics with Networks of LLM-based Agents._ Findings of the ACL: NAACL 2024.
 
 **Plan A (adopted).** Instead of a single loose prompt, steer the simulated user with **multiple modules**:
 
@@ -102,13 +96,13 @@ Code appears as several versions of one large script (`PlanA-test0-v*.py`) befor
 
 The Iteration 2 design is refactored into a single package, `misinfo_eval_framework`, organized around **three components with a defined API**:
 
-- `**user_agent`** — the simulated misinformation-leaning user.
+- `**user_agent`\*\* — the simulated misinformation-leaning user.
 - `**target_llm**` — the model under evaluation.
 - `**evaluator**` — scores how the target responds over the dialogue.
 
 Shared **utilities** (session driver, helpers) live in the same package so the codebase is imported and run as one unit.
 
-- **Experiment 1** — the first **large end-to-end run** on curated **single-sentence claims**; pilots are in the same folder; results were **reported in the course**. Anything named *experiment 1* belongs here.
+- **Experiment 1** — the first **large end-to-end run** on curated **single-sentence claims**; pilots are in the same folder; results were **reported in the course**. Anything named _experiment 1_ belongs here.
 
 ### Iteration 4 — finer-grained reflection and Experiment 2
 
@@ -116,7 +110,7 @@ Same three-part architecture as Iteration 3. The change is inside the user’s *
 
 - **Experiment 2** — confirms the stack still runs end-to-end with the split reflection. Uses **short claims** and a **matched subset** so results stay comparable to Experiment 1. **Result: it works.**
 
-### Iteration 5 — passage-scale misinformation and Experiment 3 *(current)*
+### Iteration 5 — passage-scale misinformation and Experiment 3 _(current)_
 
 Iterations 3 and 4 targeted **single-sentence claims**. Iteration 5 **extends Iteration 4** so the framework can stress-test **richer inputs** — **multi-sentence or passage-length** misinformation (e.g., fake-news-style text), not only atomic claims.
 
@@ -140,21 +134,21 @@ Raw source text and per-source cleaning notebooks sit under their own `data/<sou
 
 ### Short-claim datasets
 
-| File | Rows | Columns | Subtypes (`type`) |
-|---|---|---|---|
-| `ds_bias.csv` | 72 | `index, content, type, bias_type, stereotyped_entity` | `declaration`, `description` |
-| `ds_conspiracy.csv` | 59 | `content, type` | `government malfeasance`, `personal wellbeing`, `malevolent global conspiracy`, `control of information`, `extraterrestrial cover-up` |
-| `ds_fibvid.csv` | 430 | `content, type` | `political_general`, `race_protest_police`, `economy_taxes_jobs`, `elections_voting`, `immigration_religion`, `covid_health`, `media_censorship`, `guns_violence`, `conspiracy` |
-| `ds_climatefever.csv` | 253 | `content, type` | `co2_emissions`, `temperature_warming`, `ice_sea_polar`, `general_climate_denial`, `extreme_weather`, `policy_energy`, `climate_science` |
+| File                  | Rows | Columns                                               | Subtypes (`type`)                                                                                                                                                               |
+| --------------------- | ---- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ds_bias.csv`         | 72   | `index, content, type, bias_type, stereotyped_entity` | `declaration`, `description`                                                                                                                                                    |
+| `ds_conspiracy.csv`   | 59   | `content, type`                                       | `government malfeasance`, `personal wellbeing`, `malevolent global conspiracy`, `control of information`, `extraterrestrial cover-up`                                           |
+| `ds_fibvid.csv`       | 430  | `content, type`                                       | `political_general`, `race_protest_police`, `economy_taxes_jobs`, `elections_voting`, `immigration_religion`, `covid_health`, `media_censorship`, `guns_violence`, `conspiracy` |
+| `ds_climatefever.csv` | 253  | `content, type`                                       | `co2_emissions`, `temperature_warming`, `ice_sea_polar`, `general_climate_denial`, `extreme_weather`, `policy_energy`, `climate_science`                                        |
 
 `ds_bias.csv` additionally exposes `bias_type` (13 stereotype attributes: `gender`, `age`, `political`, `regional-person`, `physical-appearance`, `urbanity`, `ethnicity`, `disability`, `region`, `sexual-orientation`, and combinations) and `stereotyped_entity`.
 
 ### Long-text datasets
 
-| File | Rows | Columns | Subtypes (`type`) |
-|---|---|---|---|
-| `ds_fakenews.csv` | 240 | `title, content, type` | `business`, `education`, `entertainment`, `politics`, `sports`, `technology` (40 each) |
-| `ds_fakehealth.csv` | 743 | `title, content, type` | `general_health`, `cancer`, `diagnostics_devices_drugs`, `lifestyle_diet_alt_med`, `chronic_disease`, `neurological`, `cardiovascular`, `mental_health`, `womens_reproductive_health`, `infectious_disease` |
+| File                | Rows | Columns                | Subtypes (`type`)                                                                                                                                                                                           |
+| ------------------- | ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ds_fakenews.csv`   | 240  | `title, content, type` | `business`, `education`, `entertainment`, `politics`, `sports`, `technology` (40 each)                                                                                                                      |
+| `ds_fakehealth.csv` | 220  | `title, content, type` | `general_health`, `cancer`, `lifestyle_diet_alt_med`, `diagnostics_devices_drugs`, `chronic_disease`, `cardiovascular`, `neurological`, `mental_health`, `womens_reproductive_health`, `infectious_disease` |
 
 ---
 
@@ -172,4 +166,3 @@ Raw source text and per-source cleaning notebooks sit under their own `data/<sou
 - **Experiment naming follows iterations:** Experiment 1 ↔ Iteration 3, Experiment 2 ↔ Iteration 4, Experiment 3 ↔ Iteration 5.
 - **Runnable entrypoints** are `experiment*.py` files; their **module docstring is the source of truth** for flags, paths, and output layout.
 - **Resumable runs.** Experiment drivers write incremental `summary.json`, `summary.csv`, `turn_level.csv`, and `checkpoint.json`, and support `--resume <existing_results_dir>`.
-

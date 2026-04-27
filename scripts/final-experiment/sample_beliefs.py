@@ -15,12 +15,12 @@ shaped to match the entry format consumed by the Iteration 5 experiment loader
 Sampling policy:
   - ds_bias        : keep ALL rows (72)
   - ds_conspiracy  : keep ALL rows (59, including 3 with NaN type)
-  - ds_fibvid      : 80 rows, stratified by `type` (largest-remainder allocation)
-  - ds_climatefever: 80 rows, stratified by `type`
-  - ds_fakenews    : 80 rows, stratified by `type`   (long-text)
-  - ds_fakehealth  : 80 rows, stratified by `type`   (long-text)
+  # - ds_fibvid      : 40 rows, stratified by `type` (largest-remainder allocation)
+  - ds_climatefever: 40 rows, stratified by `type`
+  - ds_fakenews    : keep ALL rows (80), stratified by `type`   (long-text)
+  - ds_fakehealth  : 40 rows, stratified by `type`   (long-text)
 
-Total: 72 + 59 + 80 + 80 + 80 + 80 = 451 beliefs.
+Total: 72 + 59 + 40 + 80 + 40 = 331 beliefs.
 """
 
 from __future__ import annotations
@@ -36,7 +36,8 @@ DATA_DIR = REPO_ROOT / "data" / "dataset"
 OUT_PATH = DATA_DIR / "sampled_beliefs.json"
 
 SEED = 42
-N_SAMPLE = 80
+N_SAMPLE_SHORT = 40
+N_SAMPLE_LONG = 40
 
 
 def largest_remainder_allocation(counts: pd.Series, n: int) -> dict:
@@ -117,11 +118,12 @@ def build_long_text_records(df: pd.DataFrame, category: str) -> list[dict]:
 def main() -> None:
     print(f"Reading from : {DATA_DIR}")
     print(f"Seed         : {SEED}")
-    print(f"N per dataset (sampled): {N_SAMPLE}")
+    print(f"N per short dataset (sampled): {N_SAMPLE_SHORT}")
+    print(f"N per long-text dataset (sampled): {N_SAMPLE_LONG}")
 
     ds_bias = pd.read_csv(DATA_DIR / "ds_bias.csv")
     ds_conspiracy = pd.read_csv(DATA_DIR / "ds_conspiracy.csv")
-    ds_fibvid = pd.read_csv(DATA_DIR / "ds_fibvid.csv")
+    # ds_fibvid = pd.read_csv(DATA_DIR / "ds_fibvid.csv")
     ds_climate = pd.read_csv(DATA_DIR / "ds_climatefever.csv")
     ds_fakenews = pd.read_csv(DATA_DIR / "ds_fakenews.csv")
     ds_fakehealth = pd.read_csv(DATA_DIR / "ds_fakehealth.csv")
@@ -129,7 +131,7 @@ def main() -> None:
     # Long-text datasets: drop rows with no usable body or headline. The
     # Iteration 5 loader (`load_fakenews`) does the same filter, so any rows
     # we sample here that have a blank body would be silently dropped at
-    # experiment time. Filter once, up front, so the final 80-per-dataset
+    # experiment time. Filter once, up front, so the final per-dataset
     # count is honest.
     for name, df in [("ds_fakenews", ds_fakenews), ("ds_fakehealth", ds_fakehealth)]:
         n_before = len(df)
@@ -141,15 +143,18 @@ def main() -> None:
             print(f"[{name}] dropped {n_before - len(df)} rows with empty title/body "
                   f"(source has {n_before}, usable for sampling = {len(df)})")
 
-    fibvid_sample = stratified_sample(ds_fibvid, "type", N_SAMPLE, SEED, "fibvid")
-    climate_sample = stratified_sample(ds_climate, "type", N_SAMPLE, SEED, "climatefever")
-    fakenews_sample = stratified_sample(ds_fakenews, "type", N_SAMPLE, SEED, "fakenews")
-    fakehealth_sample = stratified_sample(ds_fakehealth, "type", N_SAMPLE, SEED, "fakehealth")
+    # fibvid_sample = stratified_sample(ds_fibvid, "type", N_SAMPLE_SHORT, SEED, "fibvid")
+    climate_sample = stratified_sample(ds_climate, "type", N_SAMPLE_SHORT, SEED, "climatefever")
+    # ds_fakenews: keep ALL rows (already curated to 80, stratified by type).
+    fakenews_sample = ds_fakenews
+    print(f"\n[fakenews] keeping ALL {len(fakenews_sample)} rows "
+          f"({fakenews_sample['type'].nunique()} subtypes)")
+    fakehealth_sample = stratified_sample(ds_fakehealth, "type", N_SAMPLE_LONG, SEED, "fakehealth")
 
     records: list[dict] = []
     records += build_short_claim_records(ds_bias, "bias", type_col="bias_type")
     records += build_short_claim_records(ds_conspiracy, "conspiracy")
-    records += build_short_claim_records(fibvid_sample, "fibvid")
+    # records += build_short_claim_records(fibvid_sample, "fibvid")
     records += build_short_claim_records(climate_sample, "climate")
     records += build_long_text_records(fakenews_sample, "fake_news")
     records += build_long_text_records(fakehealth_sample, "fake_health")

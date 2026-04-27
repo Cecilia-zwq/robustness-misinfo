@@ -3,7 +3,7 @@ main_user_IVs/run_conversations.py
 ==================================
 Stage 1 of RQ1: generate the conversation corpus.
 
-Produces 9 cells × N beliefs × 4 target models conversation artifacts
+Produces 10 cells × N beliefs × 4 target models conversation artifacts
 under results/main_user_IVs/<timestamp>/conversations/. No scoring is
 performed here — scores are populated later by run_scoring.py.
 

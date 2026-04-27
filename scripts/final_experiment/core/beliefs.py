@@ -69,3 +69,4 @@ def load_beliefs(path: Path | str) -> list[dict]:
         per_cat_counter[cat] = local_idx + 1
 
     return records
+

@@ -17,7 +17,7 @@ Replaces misinfo_eval_framework.session.run_session. Differences:
 
 This file deliberately has no `misinfo_eval_framework` import. It works
 with any UserSimulation that satisfies the protocol below; the
-framework-dependent simulations live in core/user_simulations.py.
+framework-dependent simulations live in core/users.py.
 Parallelism is handled one level up by core/runner.py, so this module
 stays simple and testable in isolation.
 """
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ════════════════════════════════════════════════════════════════════════════
 # Protocols (duck-typed: framework TargetLLM and core.targets.TargetConfig
 # both satisfy TargetLike; UserSimulation is implemented in
-# core/user_simulations.py)
+# core/users.py)
 # ════════════════════════════════════════════════════════════════════════════
 
 class TargetLike(Protocol):
@@ -50,7 +50,7 @@ class TargetLike(Protocol):
 
     Implemented by:
       - misinfo_eval_framework.target_llm.TargetLLM (legacy; still used
-        by main-user-IVs/run_conversations.py)
+        by main_user_IVs/run_conversations.py)
       - core.targets.TargetConfig (RQ1.3 — adds thinking/system-prompt/tools)
     """
     provider: str
@@ -79,7 +79,7 @@ class UserSimulation(Protocol):
     """Generate the next user message given the conversation so far.
 
     The runner calls this once per turn. Implementations live in
-    core/user_simulations.py:
+    core/users.py:
       - AgentSimulation                — RQ1, RQ1.3
       - StaticReplaySimulation         — RQ2
       - NoReflectionSimulation         — RQ3 (live)

@@ -9,7 +9,7 @@ performed here — scores are populated later by run_scoring.py.
 
 Usage
 -----
-  cd scripts/final-experiment
+  cd scripts/final_experiment
   python -m main_user_IVs.run_conversations [--workers 16] [--resume <dir>]
 """
 
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 # Allow `python -m main_user_IVs.run_conversations` from the parent directory.
-# Adds scripts/final-experiment to sys.path so `core` is importable.
+# Adds scripts/final_experiment to sys.path so `core` is importable.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import (  # noqa: E402
@@ -78,8 +78,8 @@ def _worker(payload: dict) -> JobResult:
     target = TargetLLM(
         provider=target_provider,
         model=target_model,
-        max_tokens=cfg.MAX_TOKENS_TARGET,
         temperature=cfg.TEMPERATURE_TARGET,
+        system_prompt=cfg.SYS_TARGET
     )
 
     artifact = run_conversation(

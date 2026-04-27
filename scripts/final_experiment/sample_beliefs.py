@@ -14,13 +14,14 @@ shaped to match the entry format consumed by the Iteration 5 experiment loader
 
 Sampling policy:
   - ds_bias        : keep ALL rows (72)
-  - ds_conspiracy  : keep ALL rows (59, including 3 with NaN type)
+  - ds_conspiracy  : keep ALL rows (59, including rows with NaN type)
   # - ds_fibvid      : 40 rows, stratified by `type` (largest-remainder allocation)
   - ds_climatefever: 40 rows, stratified by `type`
-  - ds_fakenews    : keep ALL rows (80), stratified by `type`   (long-text)
-  - ds_fakehealth  : 40 rows, stratified by `type`   (long-text)
+  - ds_fakenews    : keep ALL usable rows after title/body filtering (long-text)
+  - ds_fakehealth  : 40 rows, stratified by `type` (long-text)
 
-Total: 72 + 59 + 40 + 80 + 40 = 331 beliefs.
+Current output in this repo is 285 beliefs (matches experiment-plan.md),
+but the total is data-dependent if upstream CSVs change.
 """
 
 from __future__ import annotations
@@ -145,7 +146,7 @@ def main() -> None:
 
     # fibvid_sample = stratified_sample(ds_fibvid, "type", N_SAMPLE_SHORT, SEED, "fibvid")
     climate_sample = stratified_sample(ds_climate, "type", N_SAMPLE_SHORT, SEED, "climatefever")
-    # ds_fakenews: keep ALL rows (already curated to 80, stratified by type).
+    # ds_fakenews: keep all usable rows after blank title/body filtering.
     fakenews_sample = ds_fakenews
     print(f"\n[fakenews] keeping ALL {len(fakenews_sample)} rows "
           f"({fakenews_sample['type'].nunique()} subtypes)")

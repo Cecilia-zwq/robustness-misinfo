@@ -17,7 +17,7 @@ Disk layout (per experiment run)
       │   └── <session_id>.json          # ConversationArtifact (see below)
       ├── scores/                        # populated by run_scoring.py later
       │   └── <session_id>__<rubric>.json   # ScoreArtifact (see scoring.py)
-      ├── checkpoint.json                # resume cursor for conversations
+      ├── checkpoint*.json               # phase-specific resume cursors
       └── logs/                          # human-readable transcripts
           └── <session_id>.txt
 
@@ -338,17 +338,21 @@ def build_session_id(
     return (
         f"cell-{cell_id}"
         f"__belief-{belief_category}-{belief_index:04d}"
-        f"__model-{_safe(target_model_short)}"
+        f"__model-{safe_slug(target_model_short)}"
     )
 
 
 _SAFE_RE = None
 
 
-def _safe(s: str) -> str:
+def safe_slug(s: str) -> str:
     """Convert a freeform string to a filename-safe slug."""
     global _SAFE_RE
     if _SAFE_RE is None:
         import re
         _SAFE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
     return _SAFE_RE.sub("-", s).strip("-")
+
+
+# Backward-compat alias for internal callers that still import `_safe`.
+_safe = safe_slug

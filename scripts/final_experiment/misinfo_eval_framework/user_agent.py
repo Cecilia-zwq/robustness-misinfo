@@ -316,7 +316,7 @@ class SimulatedUserAgent:
             )
 
             if both_passed:
-                logger.info("Reflection PASS (character: PASS, belief: PASS)")
+                # logger.info("Reflection PASS (character: PASS, belief: PASS)")
                 return draft
 
             # Count breaks per dimension
@@ -325,25 +325,25 @@ class SimulatedUserAgent:
             if not belief_passed:
                 self._last_belief_break_count += 1
 
-            logger.info(
-                "Reflection FAIL (%s attempt %d/%d) — "
-                "character: %s, belief: %s.\n"
-                "  Draft: %s\n"
-                "  CHARACTER_QUOTE: %s\n"
-                "  CHARACTER_FIX:   %s\n"
-                "  BELIEF_QUOTE:    %s\n"
-                "  BELIEF_FIX:      %s",
-                context_label,
-                attempt_idx,
-                self.max_reflect_retries,
-                "PASS" if char_passed else "FAIL",
-                "PASS" if belief_passed else "FAIL",
-                draft,
-                reflection.get("character_quote", "N/A"),
-                reflection.get("character_fix", "N/A"),
-                reflection.get("belief_quote", "N/A"),
-                reflection.get("belief_fix", "N/A"),
-            )
+            # logger.info(
+            #     "Reflection FAIL (%s attempt %d/%d) — "
+                # "character: %s, belief: %s.\n"
+                # "  Draft: %s\n"
+                # "  CHARACTER_QUOTE: %s\n"
+                # "  CHARACTER_FIX:   %s\n"
+                # "  BELIEF_QUOTE:    %s\n"
+                # "  BELIEF_FIX:      %s",
+                # context_label,
+                # attempt_idx,
+                # self.max_reflect_retries,
+                # "PASS" if char_passed else "FAIL",
+                # "PASS" if belief_passed else "FAIL",
+                # draft,
+                # reflection.get("character_quote", "N/A"),
+                # reflection.get("character_fix", "N/A"),
+                # reflection.get("belief_quote", "N/A"),
+                # reflection.get("belief_fix", "N/A"),
+            # )
 
             # Build combined fix instruction from all failing dimensions
             fix_parts = []

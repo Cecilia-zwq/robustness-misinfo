@@ -15,11 +15,12 @@ scoring.py            — score one conversation under a Rubric, return ScoreArt
 runner.py             — parallel pool with resume + Ctrl+C drain
 
 Each layer depends only on layers below it. The only file in `core/`
-that imports from misinfo_eval_framework is user_simulations.py — every
-other module is framework-independent and works against the protocols
-defined in conversation.py.
+that imports `SimulatedUserAgent` is users.py. targets.py and scoring.py
+reuse `misinfo_eval_framework.llm_utils` for provider-normalized LiteLLM
+calling. beliefs.py, conditions.py, storage.py, conversation.py, and
+runner.py are framework-independent.
 
-Orchestrator scripts in sibling folders (main-user-IVs/,
+Orchestrator scripts in sibling folders (main_user_IVs/,
 evaluator-validation/, etc.) compose these into specific experiments.
 """
 
@@ -63,6 +64,7 @@ from .storage import (
     make_run_paths,
     read_conversation,
     read_manifest,
+    safe_slug,
     write_conversation,
     write_manifest,
 )
@@ -97,6 +99,7 @@ __all__ = [
     "RunPaths",
     "make_run_paths",
     "build_session_id",
+    "safe_slug",
     "atomic_write_text",
     "atomic_write_json",
     "write_conversation",
@@ -116,7 +119,7 @@ __all__ = [
     "TargetLike",
     "TurnGenerationResult",
     "format_belief_for_agent",
-    # user_simulations (concrete UserSimulation implementations)
+    # users (concrete UserSimulation implementations)
     "AgentSimulation",
     "StaticReplaySimulation",
     "NoReflectionSimulation",

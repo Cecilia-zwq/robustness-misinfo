@@ -4,7 +4,7 @@ core/beliefs.py
 Load the sampled belief pool from sample_beliefs.py output.
 
 The on-disk format is the JSON list emitted by
-`scripts/final-experiment/sample_beliefs.py`. Each record has these keys:
+`scripts/final_experiment/sample_beliefs.py`. Each record has these keys:
 
   category      : str      -- "bias" | "conspiracy" | "climate" | "fake_news" | "fake_health"
   subtype       : str      -- dataset-specific subcategory; may be ""

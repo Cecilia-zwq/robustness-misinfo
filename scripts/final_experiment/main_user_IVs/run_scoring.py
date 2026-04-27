@@ -13,9 +13,13 @@ Two-evaluator agreement is built on top of this script: run twice with
 two different evaluators and --suffix-evaluator, then a downstream
 analysis step compares the two score files per session.
 
+Note: the Anthropic "thinking" escalation variant from config.py is
+reserved for a follow-up script that passes provider-specific thinking
+kwargs; this script currently runs the non-thinking evaluator set.
+
 Usage
 -----
-  cd scripts/final-experiment
+  cd scripts/final_experiment
   python -m main_user_IVs.run_scoring \
       --run-dir results/main_user_IVs/<timestamp> \
       --evaluator primary
@@ -38,6 +42,7 @@ from core import (  # noqa: E402
     RunPaths,
     read_conversation,
     run_jobs,
+    safe_slug,
     score_conversation,
     write_score_artifact,
 )
@@ -149,8 +154,7 @@ def main() -> None:
 
     # Build jobs from conversations on disk. Skip ones whose score file
     # already exists.
-    from core.storage import _safe
-    eval_slug = _safe(f"{eval_provider}/{eval_model}")
+    eval_slug = safe_slug(f"{eval_provider}/{eval_model}")
 
     def already_scored(sid: str) -> bool:
         if args.suffix_evaluator:

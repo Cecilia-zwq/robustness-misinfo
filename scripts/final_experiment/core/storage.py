@@ -126,12 +126,23 @@ class TurnArtifact:
     (i.e. the accepted draft, or the fallback string on max-retry).
     `reflection_attempts` records every draft considered, in order, so the
     full reflection trajectory is recoverable.
+
+    `target_empty` is True when the provider returned no text content
+    for this turn (e.g. an Anthropic refusal returned as a non-text
+    content block). In that case `target_response` carries
+    `llm_utils.EMPTY_TARGET_PLACEHOLDER` so the conversation loop and
+    the simulated user agent see a stable, human-readable placeholder.
+    Adding this default-False field is a non-breaking schema extension:
+    artifacts written before the field existed parse cleanly via
+    `ConversationArtifact.from_dict` (they get `target_empty=False`),
+    so SCHEMA_VERSION is intentionally NOT bumped.
     """
     turn: int
     user_message: str
     target_response: str
     reflection_attempts: list[ReflectionAttempt] = field(default_factory=list)
     is_fallback: bool = False
+    target_empty: bool = False
     n_character_breaks: int = 0
     n_belief_breaks: int = 0
 
@@ -164,6 +175,7 @@ class ConversationArtifact:
                     ReflectionAttempt(**a) for a in t.get("reflection_attempts", [])
                 ],
                 is_fallback=t.get("is_fallback", False),
+                target_empty=t.get("target_empty", False),
                 n_character_breaks=t.get("n_character_breaks", 0),
                 n_belief_breaks=t.get("n_belief_breaks", 0),
             )

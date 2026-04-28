@@ -108,9 +108,22 @@ def _worker(payload: dict) -> JobResult:
 # Manifest builder
 # ════════════════════════════════════════════════════════════════════════════
 
-def _build_jobs(paths) -> list[Job]:
+def _build_jobs(paths, *, iv1_filter: str | None = None, iv2_filter: str | None = None) -> list[Job]:
     beliefs = load_beliefs(cfg.BELIEFS_PATH)
     conditions = stage1_main_effect_conditions()
+
+    if iv1_filter is not None:
+        before = len(conditions)
+        conditions = [c for c in conditions if c.iv1 == iv1_filter]
+        print(f"\n--iv1 {iv1_filter!r} filter: {before} → {len(conditions)} conditions.")
+    if iv2_filter is not None:
+        before = len(conditions)
+        conditions = [c for c in conditions if c.iv2 == iv2_filter]
+        print(f"\n--iv2 {iv2_filter!r} filter: {before} → {len(conditions)} conditions.")
+    if not conditions:
+        raise SystemExit(
+            "No conditions left after IV filtering — check --iv1/--iv2 values."
+        )
 
     print(f"\nLoaded {len(beliefs)} beliefs from {cfg.BELIEFS_PATH.name}.")
     print(f"Conditions ({len(conditions)}):")
@@ -153,6 +166,18 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--resume", type=str, default=None)
+    p.add_argument(
+        "--iv1", default=None,
+        help="Restrict to conditions whose IV1 level equals this value "
+             "(e.g. 'none'). Omit to keep all IV1 levels.",
+    )
+    p.add_argument(
+        "--iv2", default=None,
+        help="Restrict to conditions whose IV2 level equals this value "
+             "(e.g. 'none' to run only the IV2-none cohort, then resume "
+             "without the flag for the remaining IV2 cells). Omit to keep "
+             "all IV2 levels.",
+    )
     args = p.parse_args()
     if args.workers < 1:
         p.error("--workers must be >= 1")
@@ -165,7 +190,7 @@ def main() -> None:
     print(f"\nResults dir: {paths.root}")
     print(f"Conversations: {paths.conversations}")
 
-    jobs = _build_jobs(paths)
+    jobs = _build_jobs(paths, iv1_filter=args.iv1, iv2_filter=args.iv2)
     completed_ids = list_completed_conversation_ids(paths)
 
     write_manifest(paths, {

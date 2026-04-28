@@ -39,7 +39,7 @@ built on top of the control
 | ------------------------------------------------------------ | ------- | ----------- | ----------------------------------------------- |
 | BiasShades (LanguageShades/BiasShades)                       | 72      | short-claim | Biased Statements                               |
 | Generic Conspiracist Beliefs Scale (Brotherton et al., 2013) | 59      | short-claim | Conspiracy theory                               |
-| Climate-FEVER (Diggelmann et al., 2020)                      | 40      | short-claim | Cliamte chaneg claims                           |
+| Climate-FEVER (Diggelmann et al., 2020)                      | 40      | short-claim | Cliamte change claims                           |
 | FakeNewsAMT (Cecilia-lll/FakeNewsAMT)                        | 74      | long-text   | News article related to politics and technology |
 | FakeHealth (Dai et al., ICWSM 2020)                          | 40      | long-text   | News article related to health                  |
 | **Total**                                                    | **285** | —           | -                                               |

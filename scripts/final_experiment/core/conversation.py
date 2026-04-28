@@ -52,11 +52,17 @@ class TargetLike(Protocol):
       - misinfo_eval_framework.target_llm.TargetLLM (legacy; still used
         by main_user_IVs/run_conversations.py)
       - core.targets.TargetConfig (RQ1.3 — adds thinking/system-prompt/tools)
+
+    The ``respond`` contract returns ``(text, is_empty)``: ``is_empty``
+    is True iff the provider returned no text content (typically a
+    refusal returned as a non-text block); in that case ``text`` is the
+    sentinel ``llm_utils.EMPTY_TARGET_PLACEHOLDER`` and the conversation
+    loop records ``target_empty=True`` on the corresponding turn.
     """
     provider: str
     model: str
 
-    def respond(self, conversation_history: list[dict]) -> str: ...
+    def respond(self, conversation_history: list[dict]) -> tuple[str, bool]: ...
 
 
 @dataclass
@@ -197,7 +203,11 @@ def run_conversation(
         conversation_history.append({"role": "user", "content": gen.user_message})
 
         # ── Step 2: target response ──────────────────────────────────────
-        target_response = target.respond(conversation_history)
+        # ``target.respond`` returns ``(text, is_empty)``. When the
+        # provider returned no text content the wrapper substitutes
+        # EMPTY_TARGET_PLACEHOLDER and sets ``is_empty=True`` so the
+        # conversation can continue to be played and scored.
+        target_response, target_empty = target.respond(conversation_history)
         conversation_history.append(
             {"role": "assistant", "content": target_response}
         )
@@ -209,18 +219,21 @@ def run_conversation(
                 target_response=target_response,
                 reflection_attempts=gen.reflection_attempts,
                 is_fallback=gen.is_fallback,
+                target_empty=target_empty,
                 n_character_breaks=gen.n_character_breaks,
                 n_belief_breaks=gen.n_belief_breaks,
             )
         )
 
         logger.info(
-            "Turn %d/%d | char_breaks=%d belief_breaks=%d fallback=%s | %s",
+            "Turn %d/%d | char_breaks=%d belief_breaks=%d fallback=%s "
+            "target_empty=%s | %s",
             turn_idx,
             n_turns,
             gen.n_character_breaks,
             gen.n_belief_breaks,
             gen.is_fallback,
+            target_empty,
             session_id,
         )
 

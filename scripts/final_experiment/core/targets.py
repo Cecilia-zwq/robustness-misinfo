@@ -26,12 +26,21 @@ value; no code change to the runner or artifact schema.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
 import litellm
 
-from misinfo_eval_framework.llm_utils import build_model_string
+from misinfo_eval_framework.llm_utils import (
+    DEFAULT_RETRY_ON_EMPTY,
+    EMPTY_TARGET_PLACEHOLDER,
+    build_model_string,
+    extract_native_stop_reason,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -67,25 +76,69 @@ class TargetConfig:
     max_tokens: int | None = 600
     extras: dict[str, Any] = field(default_factory=dict)
 
-    def respond(self, conversation_history: list[dict]) -> str:
+    def respond(self, conversation_history: list[dict]) -> tuple[str, bool]:
         """Generate a response given conversation history.
 
-        Mirrors the public API of misinfo_eval_framework.target_llm.TargetLLM
-        so the conversation loop stays identical.
+        Mirrors the public API of
+        ``misinfo_eval_framework.target_llm.TargetLLM.respond`` — returns
+        ``(text, is_empty)``. ``is_empty`` is True when the provider
+        returned no text content (typically a refusal as a non-text
+        block); in that case ``text`` is
+        ``llm_utils.EMPTY_TARGET_PLACEHOLDER`` and the conversation loop
+        records ``target_empty=True`` on the corresponding turn. We
+        cannot use the central ``call_llm`` helper here because this
+        wrapper forwards provider-specific ``extras`` (thinking,
+        reasoning_effort, tools, …) directly to ``litellm.completion``.
         """
         messages: list[dict] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         messages.extend(conversation_history)
 
-        response = litellm.completion(
-            model=build_model_string(self.provider, self.model),
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            **self.extras,
+        model_string = build_model_string(self.provider, self.model)
+        max_attempts = max(1, DEFAULT_RETRY_ON_EMPTY + 1)
+
+        last_finish_reason: str | None = None
+        last_native_stop: str | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            response = litellm.completion(
+                model=model_string,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                **self.extras,
+            )
+            choice = response.choices[0]
+            content = choice.message.content
+            last_finish_reason = getattr(choice, "finish_reason", None)
+            last_native_stop = extract_native_stop_reason(choice, response)
+
+            if content is not None and content.strip():
+                if attempt > 1:
+                    logger.info(
+                        "Target %s recovered on attempt %d/%d "
+                        "(prior native_stop_reason=%r).",
+                        model_string, attempt, max_attempts, last_native_stop,
+                    )
+                return content.strip(), False
+
+            if attempt < max_attempts:
+                logger.warning(
+                    "Target %s empty on attempt %d/%d "
+                    "(finish_reason=%r, native_stop_reason=%r); retrying.",
+                    model_string, attempt, max_attempts,
+                    last_finish_reason, last_native_stop,
+                )
+
+        logger.warning(
+            "Target %s returned empty content after %d attempt(s) "
+            "(finish_reason=%r, native_stop_reason=%r); substituting "
+            "placeholder and continuing the session.",
+            model_string, max_attempts,
+            last_finish_reason, last_native_stop,
         )
-        return response.choices[0].message.content.strip()
+        return EMPTY_TARGET_PLACEHOLDER, True
 
     def to_dict(self) -> dict:
         """JSON-friendly representation for embedding in artifacts.

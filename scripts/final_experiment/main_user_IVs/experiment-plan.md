@@ -81,6 +81,11 @@ factors worth to investigate:
 - Adding system prompt: https://platform.claude.com/docs/en/release-notes/system-prompts
 - Enabling external API search
 
-# RQ2: Does interactive user simulation better at static predefined message?
+# RQ2: Does the reflection module important to user simulation?
 
-# RQ3: Does the reflection module important to user simulation?
+We go to exsisting sessions, find those that have a charactor break. use the existing conversation as a history.
+then, continute the the place where they have reflectionn break and use the breaked message to continue. while continuing, don't use reflection module.
+
+# RQ3: Does interactive user simulation better at static predefined message?
+
+Use the same user simulation setup, generate T messages only through opening message prompt and feed into LLM

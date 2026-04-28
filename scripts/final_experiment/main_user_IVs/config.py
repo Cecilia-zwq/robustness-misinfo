@@ -43,8 +43,8 @@ TARGET_LLMS: list[tuple[str, str, str]] = [
 # If they disagree, the orchestrator can escalate (handled in run_scoring.py
 # or a follow-up script — out of scope for the conversation phase).
 
-EVALUATOR_PRIMARY = ("openrouter", "openai/gpt-5-mini")
-EVALUATOR_SECONDARY = ("openrouter", "google/gemini-3-flash-preview")
+EVALUATOR_PRIMARY = ("openrouter", "openai/gpt-4.1-mini")
+EVALUATOR_SECONDARY = ("openrouter", "google/gemini-2.5-flash")
 EVALUATOR_ESCALATION_NONTHINKING = ("openrouter", "anthropic/claude-sonnet-4.6")
 # Placeholder for a future escalation script that enables provider-specific
 # thinking args; run_scoring.py currently supports only the non-thinking

@@ -49,6 +49,12 @@ Usage
       --evaluator primary \\
       --rubric misinfo_v1_split \\
       --cell iv1-none__iv2-none
+
+  # Restrict to one or more target models (slugs from config.TARGET_LLMS):
+  python -m main_user_IVs.run_scoring \\
+      --run-dir results/main_user_IVs/<timestamp> \\
+      --evaluator primary \\
+      --target gemini-3-flash deepseek-v3.2
 """
 
 from __future__ import annotations
@@ -158,6 +164,23 @@ def _matches_cell(session_id: str, cell_id: str) -> bool:
     return session_id.startswith(prefix)
 
 
+def _matches_target(session_id: str, targets: list[str]) -> bool:
+    """Return True iff the session_id's target model matches one of ``targets``.
+
+    session_ids end with ``__model-{slug}`` (the short slug from
+    config.TARGET_LLMS, e.g. ``gemini-3-flash``). We anchor on the
+    literal ``__model-`` so partial slugs like ``gpt-5`` don't
+    false-match ``gpt-5.3-chat``.
+    """
+    for tgt in targets:
+        if session_id.endswith(f"__model-{tgt}"):
+            return True
+    return False
+
+
+_TARGET_SLUGS = [slug for _, _, slug in cfg.TARGET_LLMS]
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Main
 # ════════════════════════════════════════════════════════════════════════════
@@ -190,6 +213,14 @@ def main() -> None:
         help="Restrict scoring to one cell (e.g. 'iv1-none__iv2-none' "
              "for the pure-control cell). Match is by session_id prefix.",
     )
+    p.add_argument(
+        "--target", type=str, nargs="+", default=None,
+        choices=_TARGET_SLUGS,
+        help="Restrict scoring to one or more target-model groups, "
+             "identified by the short slug from config.TARGET_LLMS "
+             f"(e.g. {' '.join(_TARGET_SLUGS)}). Match is on the "
+             "'__model-{slug}' suffix of the session_id.",
+    )
     args = p.parse_args()
 
     if args.workers < 1:
@@ -208,6 +239,8 @@ def main() -> None:
     print(f"Suffix    : {args.suffix_evaluator}")
     if args.cell:
         print(f"Cell      : {args.cell}")
+    if args.target:
+        print(f"Target    : {', '.join(args.target)}")
     print()
 
     # Build jobs from conversations on disk. Skip ones whose score file
@@ -228,6 +261,9 @@ def main() -> None:
         if args.cell and not _matches_cell(sid, args.cell):
             n_filtered_out += 1
             continue
+        if args.target and not _matches_target(sid, args.target):
+            n_filtered_out += 1
+            continue
         if already_scored(sid):
             continue
         jobs.append(Job(
@@ -242,25 +278,27 @@ def main() -> None:
             },
         ))
 
-    if args.cell:
-        print(f"Cell filter excluded {n_filtered_out} session(s).")
+    if args.cell or args.target:
+        print(f"Filters excluded {n_filtered_out} session(s).")
 
     if not jobs:
-        if args.cell and n_filtered_out > 0:
+        if (args.cell or args.target) and n_filtered_out > 0:
             print(
-                f"All matching sessions already scored, or --cell {args.cell} "
-                f"matched 0 conversations. Nothing to do."
+                "All matching sessions already scored, or filters "
+                "matched 0 conversations. Nothing to do."
             )
         else:
             print("All conversations already scored. Nothing to do.")
         return
 
-    # Distinct checkpoint name per (rubric, evaluator, cell-filter) so
-    # multiple scoring passes on the same run dir don't overwrite each
-    # other's progress files.
+    # Distinct checkpoint name per (rubric, evaluator, cell-filter,
+    # target-filter) so multiple scoring passes on the same run dir
+    # don't overwrite each other's progress files.
     checkpoint_suffix = f"{rubric.name}__{eval_slug}"
     if args.cell:
         checkpoint_suffix += f"__cell-{args.cell}"
+    if args.target:
+        checkpoint_suffix += f"__target-{'-'.join(args.target)}"
 
     run_jobs(
         jobs=jobs,

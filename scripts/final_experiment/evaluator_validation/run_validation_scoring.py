@@ -170,14 +170,31 @@ def _belief_token(category: str, belief_index: int) -> str:
     return f"__belief-{category}-{int(belief_index):04d}__"
 
 
+def _stratum_key(belief: dict, keys: tuple[str, ...]) -> tuple[str, ...]:
+    """Compute the stratum tuple for one belief.
+
+    `subtype` is normalised through ``_normalize_subtype``; everything
+    else is read raw and coerced to str so missing fields land in a
+    well-defined "" stratum rather than crashing.
+    """
+    parts: list[str] = []
+    for k in keys:
+        v = belief.get(k, "")
+        if k == "subtype":
+            v = _normalize_subtype(v)
+        parts.append(str(v))
+    return tuple(parts)
+
+
 def _stratified_sample_beliefs(
     beliefs: list[dict],
     *,
     fraction: float,
     seed: int,
     min_per_stratum: int,
+    stratification_keys: tuple[str, ...] = cfg.STRATIFICATION_KEYS,
 ) -> tuple[list[dict], list[dict]]:
-    """Stratified belief sample by (category, subtype).
+    """Stratified belief sample by ``stratification_keys``.
 
     Sampling rule per stratum::
 
@@ -196,10 +213,9 @@ def _stratified_sample_beliefs(
     """
     rng = random.Random(seed)
 
-    by_stratum: dict[tuple[str, str], list[dict]] = {}
+    by_stratum: dict[tuple[str, ...], list[dict]] = {}
     for b in beliefs:
-        key = (b["category"], _normalize_subtype(b.get("subtype", "")))
-        by_stratum.setdefault(key, []).append(b)
+        by_stratum.setdefault(_stratum_key(b, stratification_keys), []).append(b)
 
     sampled: list[dict] = []
     stats: list[dict] = []
@@ -211,14 +227,18 @@ def _stratified_sample_beliefs(
         chosen = rng.sample(pool, n_sample)
         chosen.sort(key=lambda b: b["belief_index_global"])
         sampled.extend(chosen)
-        stats.append({
-            "category": key[0],
-            "subtype": key[1],
+        # Stratum descriptor: one column per stratification key, plus
+        # the population/sample counts. This shape is what the manifest
+        # and the printed table consume — kept generic so adding a key
+        # to `stratification_keys` doesn't break either.
+        stratum_record = dict(zip(stratification_keys, key))
+        stratum_record.update({
             "n_population": n_pop,
             "n_sampled": n_sample,
             "actual_fraction": round(n_sample / n_pop, 4),
             "sampled_belief_indices": [b["belief_index"] for b in chosen],
         })
+        stats.append(stratum_record)
 
     sampled.sort(key=lambda b: b["belief_index_global"])
     return sampled, stats
@@ -227,6 +247,8 @@ def _stratified_sample_beliefs(
 def _resolve_session_ids(
     conv_dir: Path,
     sampled_beliefs: list[dict],
+    *,
+    stratification_keys: tuple[str, ...] = cfg.STRATIFICATION_KEYS,
 ) -> tuple[list[str], list[dict]]:
     """Map sampled beliefs to existing session_ids on disk.
 
@@ -254,14 +276,19 @@ def _resolve_session_ids(
         token = _belief_token(b["category"], b["belief_index"])
         matched = sorted(sid for sid in on_disk if token in sid)
         sampled_ids.update(matched)
-        per_belief.append({
+        record = {
             "category": b["category"],
-            "subtype": _normalize_subtype(b.get("subtype", "")),
             "belief_index": b["belief_index"],
             "belief_index_global": b["belief_index_global"],
             "content_preview": (b.get("content", "") or "")[:120],
             "n_conversations": len(matched),
-        })
+        }
+        # Include subtype for traceability even when not used as a
+        # stratifier — it's useful diagnostic detail when inspecting
+        # the manifest later. Skip if it's already covered above.
+        if "subtype" not in record:
+            record["subtype"] = _normalize_subtype(b.get("subtype", ""))
+        per_belief.append(record)
 
     return sorted(sampled_ids), per_belief
 
@@ -327,31 +354,14 @@ def _do_sampling(
     if manifest_path.exists() and not resample:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
-
-        if "n_beliefs_sampled" in manifest:
-            print(
-                f"[sampling] reusing existing manifest: {manifest_path.name}\n"
-                f"           {manifest['n_beliefs_sampled']} of "
-                f"{manifest['n_beliefs_population']} beliefs, "
-                f"{manifest['n_sessions_sampled']} resolved sessions "
-                f"(fraction={manifest['fraction']}, seed={manifest['seed']}). "
-                f"Pass --resample to regenerate."
-            )
-        else:
-            # Legacy schema: session-level manifest only.
-            n_sampled = manifest.get("n_sampled")
-            if n_sampled is None:
-                n_sampled = len(manifest.get("sampled_session_ids", []))
-            n_pop = manifest.get("n_population", "unknown")
-            fraction = manifest.get("fraction", "unknown")
-            seed = manifest.get("seed", "unknown")
-            print(
-                f"[sampling] reusing legacy manifest: {manifest_path.name}\n"
-                f"           {n_sampled} of {n_pop} sessions "
-                f"(fraction={fraction}, seed={seed}). "
-                f"Pass --resample to regenerate with belief-level metadata."
-            )
-
+        print(
+            f"[sampling] reusing existing manifest: {manifest_path.name}\n"
+            f"           {manifest['n_beliefs_sampled']} of "
+            f"{manifest['n_beliefs_population']} beliefs, "
+            f"{manifest['n_sessions_sampled']} resolved sessions "
+            f"(fraction={manifest['fraction']}, seed={manifest['seed']}). "
+            f"Pass --resample to regenerate."
+        )
         return list(manifest["sampled_session_ids"])
 
     if not beliefs_path.exists():

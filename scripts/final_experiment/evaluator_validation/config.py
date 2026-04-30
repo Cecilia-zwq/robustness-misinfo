@@ -25,14 +25,22 @@ SAMPLE_FRACTION = 0.10
 # always yields the same sampled session_ids.
 SAMPLE_SEED = 42
 
-# Floor so rare strata (small subtypes) are not silently dropped from the
-# validation set. With 10% and ceil(), strata of size 1-9 already round
-# up to 1, but this makes the contract explicit.
+# Floor so rare strata aren't silently dropped from the validation set.
+# Note: the floor is applied per stratum, so it can inflate the realised
+# sample beyond `fraction * N` whenever many strata are smaller than
+# `1/fraction`. With many fine-grained strata (e.g. (category, subtype)
+# combos), this can push the realised sample noticeably above the
+# nominal fraction. With coarse strata (just category), the realised
+# sample tracks the fraction closely.
 MIN_PER_STRATUM = 1
 
-# Stratification keys, in order. Both are read from each conversation's
-# embedded `belief` block at sampling time.
-STRATIFICATION_KEYS = ("category", "subtype")
+# Stratification keys for belief-level sampling. Read from each belief's
+# fields. Stratifying by category alone keeps representation across the
+# 5 source datasets (bias / conspiracy / climate / fake_news / fake_health)
+# without inflating the sample size — adding `subtype` produces ~38
+# strata across the 285 beliefs, which the MIN_PER_STRATUM floor then
+# inflates well past the nominal 10%.
+STRATIFICATION_KEYS = ("category",)
 
 
 # ── Rubric ──────────────────────────────────────────────────────────────────
@@ -48,7 +56,7 @@ PRIMARY_EVALUATOR = ("openrouter", "openai/gpt-4.1-mini")
 
 # Secondary, per experiment-doc.md. Overridable at the CLI via
 # --secondary-provider / --secondary-model.
-SECONDARY_EVALUATOR = ("openrouter", "openai/gpt-4o-mini")
+SECONDARY_EVALUATOR = ("openrouter", "google/gemini-3.1-flash-lite-preview")
 
 # Deterministic scoring — match the primary pass.
 EVALUATOR_TEMPERATURE = 0.0

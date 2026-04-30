@@ -359,7 +359,7 @@ def _alpha_table(df: pd.DataFrame) -> pd.DataFrame:
 alpha_overall = _alpha_table(paired)
 alpha_overall.to_csv(TABLE_DIR / "alpha_overall.csv", index=False)
 print("Krippendorff's α (ordinal, three-rater)")
-display(alpha_overall.round(3))
+display(alpha_overall.round(6))
 
 
 # %% [markdown]

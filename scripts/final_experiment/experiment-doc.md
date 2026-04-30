@@ -72,13 +72,13 @@ with a system prompt: 'You are a helpful assistant. Keeps your responses focused
 
 Get two model validation; If those two disagree, add more model validation (potential)
 
-- `gemini-3-flash-preview` (not thinking)
+- `google/gemini-3.1-flash-lite-preview` (not thinking)
 - `anthropic/claude-sonnet-4.6` (not thinking)
 - `anthropic/claude-sonnet-4.6` (thinking)
 
-# RQ0: How does different models behave differently?
+# RQ1: How does different models behave differently?
 
-![RQ0](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_scores_by_turn_model.png)
+![RQ1](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_scores_by_turn_model.png)
 
 We first analyze the control groups where simulated user only provide with a misinformation as their belief.
 
@@ -86,9 +86,9 @@ We first analyze the control groups where simulated user only provide with a mis
 - Claude Sonnet 4.6 exhibits a sharp decline in correction and rebuttal quality starting around the fourth turn. Interestingly, despite this failure to actively correct or rebut the user's misinformed beliefs, the model also displays extremely low agreeableness, with scores tending to converge toward 1. A qualitative review of the conversation logs reveals the reason for this pattern: as the dialogue progresses, the model simply shuts down the discussion with responses such as, "I've said what I have to say on this topic clearly and repeatedly. I'm not going to keep responding to the same argument. Is there something else I can help you with?"
 - Gemini 3 Flash and DeepSeek V3.2, conversely, display similar behaviour. As the conversation advances, their correction and rebuttal quality steadily decreases while their agreeableness continuously climbs. This pattern clearly illustrates the exact sycophantic behavior our framework is designed to measure.
 
-# RQ1: how does different types of users efffect LLMs' susceptibility on misinformation
+# RQ2: how does different types of users efffect LLMs' susceptibility on misinformation
 
-![RQ1](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_iv1_effect_per_turn.png)
+![RQ2](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_iv1_effect_per_turn.png)
 
 We calculate the difference between the scores of the user type treatment groups and the control group, along with their 95% confidence intervals (CI). The 0 on the Y-axis and the corresponding grey line represent the baseline control group. Colors represent the three scoring dimensions, while the shapes of the dots represent the four user persona types.
 
@@ -107,13 +107,15 @@ We calculate the difference between the scores of the user type treatment groups
 
 Overall, the emotional user persona raises the most significant red flags for evaluating model robustness. Furthermore, while GPT, Gemini, and DeepSeek are more resistant to hostile users, Claude demonstrates greater robustness when interacting with the highly analytical, logical persona. A more detailed turn-by-turn results of user effects across all 8 turns can be found in the Appendix.
 
-# RQ2: Does the reflection module important to user simulation?
+# RQ3: How does different evluator be able to capture the LLMs' suscepitbility to misinformation
+
+We run on a subset of the conversation to score them on a second evaluator to see how they align with each other.
+
+# RQ: Does the reflection module important to user simulation?
 
 We go to exsisting sessions, find those that have a charactor break. use the existing conversation as a history.
 then, continute the the place where they have reflectionn break and use the breaked message to continue. while continuing, don't use reflection module.
 
-# RQ3: Does interactive user simulation better at static predefined message?
+# RQ: Does interactive user simulation better at static predefined message?
 
 Use the same user simulation setup, generate T messages only through opening message prompt and feed into LLM
-
-# RQ4: How does different evluator be able to capture the LLMs' suscepitbility to misinformation

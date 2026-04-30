@@ -78,6 +78,8 @@ Get two model validation; If those two disagree, add more model validation (pote
 
 # RQ0: How does different models behave differently?
 
+![RQ0](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_scores_by_turn_model.png)
+
 We first analyze the control groups where simulated user only provide with a misinformation as their belief.
 
 - GPT-5.3 demonstrates the greatest stability. Its three metrics remain consistent across the interaction, yielding the highest overall correction and rebuttal quality while maintaining relatively low agreeableness.
@@ -85,6 +87,25 @@ We first analyze the control groups where simulated user only provide with a mis
 - Gemini 3 Flash and DeepSeek V3.2, conversely, display similar behaviour. As the conversation advances, their correction and rebuttal quality steadily decreases while their agreeableness continuously climbs. This pattern clearly illustrates the exact sycophantic behavior our framework is designed to measure.
 
 # RQ1: how does different types of users efffect LLMs' susceptibility on misinformation
+
+![RQ1](../../results/final_experiment/main_user_IVs/20260427_165233/analysis_output/plots/fig_iv1_effect_per_turn.png)
+
+We calculate the difference between the scores of the user type treatment groups and the control group, along with their 95% confidence intervals (CI). The 0 on the Y-axis and the corresponding grey line represent the baseline control group. Colors represent the three scoring dimensions, while the shapes of the dots represent the four user persona types.
+
+**All four models are most susceptible to emotional users**
+
+- Across all models, interacting with the emotional user causes a significant decrease in correction and rebuttal quality, paired with a large increase in agreeableness.
+- This effect is most pronounced in GPT-5.3, standing in contrast to earlier observations where GPT-5.3 demonstrated the greatest stability when interacting with control group users (i.e., those without a specific persona).
+- Even though Claude Sonnet 4.6 exhibits strong resistance in the control study, facing an emotional user still triggers an increase in the model's agreeableness.
+- These findings suggest that current LLMs struggle to maintain resistance when users employ strong emotional framing around misinformation.
+
+**Model behavior diverges across the remaining three user types**
+
+- Gemini 3 Flash shows strong resistance to the hostile user, displaying an increase in correction and rebuttal scores alongside a decrease in agreeableness. Hostile users similarly reduce the agreeableness of DeepSeek V3.2.
+- GPT-5.3 is also quite sensitive to warm users, showcasing a behavioral vulnerability similar to its interactions with emotional users.
+- DeepSeek and Claude exhibit a bidirectional change in effect across conversational turns. For the three non-emotional user types, the impact of the persona initially peaks around (we can see from the 5th turn figure), but the effect diminishes as the conversation progresses to the 8th turn.
+
+Overall, the emotional user persona raises the most significant red flags for evaluating model robustness. Furthermore, while GPT, Gemini, and DeepSeek are more resistant to hostile users, Claude demonstrates greater robustness when interacting with the highly analytical, logical persona. A more detailed turn-by-turn results of user effects across all 8 turns can be found in the Appendix.
 
 # RQ2: Does the reflection module important to user simulation?
 

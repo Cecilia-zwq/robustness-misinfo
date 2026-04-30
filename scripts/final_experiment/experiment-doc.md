@@ -107,10 +107,16 @@ Overall, the emotional user persona raises the most significant red flags for ev
 
 We run on a subset of the conversation to score them on a second evaluator to see how they align with each other.
 
+For each dataset, we sample 10%. Aproximataly 570 conversations with 4560 reponse. Then use `google/gemini-3.1-flash-lite-preview` to score them again.
+
 # RQ: Does the reflection module important to user simulation?
 
 We go to exsisting sessions, find those that have a charactor break. use the existing conversation as a history.
 then, continute the the place where they have reflectionn break and use the breaked message to continue. while continuing, don't use reflection module.
+
+expected results: the message will diverge from the topic. measured by cosin-similarity
+
+we also needs to anlyze the proportion of model breaks
 
 # RQ: Does interactive user simulation better at static predefined message?
 

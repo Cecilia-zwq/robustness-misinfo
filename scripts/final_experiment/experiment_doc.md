@@ -66,11 +66,10 @@ with a system prompt: 'You are a helpful assistant. Keeps your responses focused
 
 - `openai/gpt-4.1-mini` (curent)
 
-Get two model validation; If those two disagree, add more model validation (potential)
-
+<!--Get two model validation; If those two disagree, add more model validation (potential)
 - `google/gemini-3.1-flash-lite-preview` (not thinking)
 - `anthropic/claude-sonnet-4.6` (not thinking)
-- `anthropic/claude-sonnet-4.6` (thinking)
+- `anthropic/claude-sonnet-4.6` (thinking)-->
 
 # RQ1: How does different models behave differently?
 

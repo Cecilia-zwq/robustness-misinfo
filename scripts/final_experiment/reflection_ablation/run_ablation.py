@@ -183,7 +183,6 @@ def _load_or_build_sample(rebuild: bool) -> list[SampleEntry]:
     planned = build_sample(
         cfg.SOURCE_CONV_DIR,
         sample_fraction=cfg.SAMPLE_FRACTION,
-        min_per_cell=cfg.MIN_PER_CELL,
         turn1_ratio=cfg.TURN1_RATIO,
         seed=cfg.SAMPLING_SEED,
     )
@@ -192,7 +191,6 @@ def _load_or_build_sample(rebuild: bool) -> list[SampleEntry]:
         planned=planned,
         params={
             "sample_fraction": cfg.SAMPLE_FRACTION,
-            "min_per_cell": cfg.MIN_PER_CELL,
             "turn1_ratio": cfg.TURN1_RATIO,
             "seed": cfg.SAMPLING_SEED,
             "source_conv_dir": str(cfg.SOURCE_CONV_DIR),
@@ -248,7 +246,6 @@ def _write_manifest(*, n_planned: int, n_workers: int) -> None:
         "n_workers": n_workers,
         "sampling": {
             "sample_fraction": cfg.SAMPLE_FRACTION,
-            "min_per_cell": cfg.MIN_PER_CELL,
             "turn1_ratio": cfg.TURN1_RATIO,
             "seed": cfg.SAMPLING_SEED,
         },
@@ -274,9 +271,24 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true",
                    help="Build the sample plan and print stats, but do not "
                         "run any sessions.")
+    p.add_argument("--max-failed", type=int, default=None,
+                   help="Fail-fast threshold: stop once this many jobs fail "
+                        "in the current invocation.")
+    p.add_argument("--max-failure-rate", type=float, default=None,
+                   help="Fail-fast threshold in (0,1]: stop once failed/"
+                        "consumed reaches this rate.")
+    p.add_argument("--max-same-error", type=int, default=None,
+                   help="Fail-fast threshold: stop once the same normalized "
+                        "error recurs this many times.")
     args = p.parse_args()
     if args.workers < 1:
         p.error("--workers must be >= 1")
+    if args.max_failed is not None and args.max_failed < 1:
+        p.error("--max-failed must be >= 1")
+    if args.max_failure_rate is not None and not (0.0 < args.max_failure_rate <= 1.0):
+        p.error("--max-failure-rate must be in (0, 1]")
+    if args.max_same_error is not None and args.max_same_error < 1:
+        p.error("--max-same-error must be >= 1")
 
     # Ensure the source run actually exists.
     if not cfg.SOURCE_CONV_DIR.exists():
@@ -319,6 +331,9 @@ def main() -> None:
         is_done=lambda job: job.job_id in completed_ids,
         progress_label="ablation",
         checkpoint_name=cfg.CHECKPOINT_PATH.name,
+        max_failed=args.max_failed,
+        max_failure_rate=args.max_failure_rate,
+        max_same_error=args.max_same_error,
     )
 
 

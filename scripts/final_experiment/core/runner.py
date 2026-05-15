@@ -30,6 +30,7 @@ import logging
 import threading
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -82,6 +83,9 @@ def run_jobs(
     is_done: Callable[[Job], bool] | None = None,
     progress_label: str = "job",
     checkpoint_name: str = "checkpoint.json",
+    max_failed: int | None = None,
+    max_failure_rate: float | None = None,
+    max_same_error: int | None = None,
 ) -> tuple[list[JobResult], list[JobResult]]:
     """Run jobs in parallel, with resume and Ctrl+C drain.
 
@@ -107,6 +111,16 @@ def run_jobs(
         Filename for the checkpoint within paths.root. Multiple phases
         can coexist by passing different names (e.g. "checkpoint.json"
         for conversations, "scoring_checkpoint.json" for scoring).
+    max_failed : int | None
+        Optional fail-fast threshold. If set, stop the run once the
+        number of failed jobs in this invocation reaches this value.
+    max_failure_rate : float | None
+        Optional fail-fast threshold in (0, 1]. If set, stop the run
+        once failed / consumed reaches this value.
+    max_same_error : int | None
+        Optional fail-fast threshold for recurring identical failures.
+        If set, stop once any normalized error signature has appeared
+        this many times among failed jobs in this invocation.
 
     Returns
     -------
@@ -116,6 +130,17 @@ def run_jobs(
         only the failed ones.
     """
     is_done = is_done or (lambda j: False)
+    if max_failed is not None and max_failed < 1:
+        raise ValueError(f"max_failed must be >= 1 when provided, got {max_failed}")
+    if max_failure_rate is not None and not (0.0 < max_failure_rate <= 1.0):
+        raise ValueError(
+            "max_failure_rate must be in (0, 1] when provided, "
+            f"got {max_failure_rate}"
+        )
+    if max_same_error is not None and max_same_error < 1:
+        raise ValueError(
+            f"max_same_error must be >= 1 when provided, got {max_same_error}"
+        )
     checkpoint_path = paths.root / checkpoint_name
 
     # ── Filter to remaining jobs ─────────────────────────────────────────
@@ -140,6 +165,7 @@ def run_jobs(
     # ── Parallel execution ───────────────────────────────────────────────
     completed: list[JobResult] = []
     failed: list[JobResult] = []
+    error_counts: Counter[str] = Counter()
     save_lock = threading.Lock()
 
     def persist_checkpoint() -> None:
@@ -162,6 +188,7 @@ def run_jobs(
     pool = ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="job")
     future_to_job: dict = {}
     interrupted = False
+    aborted = False
 
     try:
         future_to_job = {
@@ -205,6 +232,8 @@ def run_jobs(
                 else:
                     failed.append(result)
                     err = result.info.get("error", "")
+                    sig = _error_signature(result)
+                    error_counts[sig] += 1
                     print(
                         f"  [{n_total_done}/{total}] FAIL {result.job_id}  "
                         f"{str(err)[:80]}  | "
@@ -214,6 +243,44 @@ def run_jobs(
                         print(result.info["traceback"])
 
                 persist_checkpoint()
+
+            # ── Optional fail-fast gates ─────────────────────────────────
+            n_failed = len(failed)
+            fail_rate = (n_failed / n_consumed) if n_consumed > 0 else 0.0
+            hit_max_failed = max_failed is not None and n_failed >= max_failed
+            hit_fail_rate = (
+                max_failure_rate is not None
+                and fail_rate >= max_failure_rate
+            )
+            hit_same_error = False
+            same_error_reason = ""
+            if max_same_error is not None and error_counts:
+                top_sig, top_count = error_counts.most_common(1)[0]
+                if top_count >= max_same_error:
+                    hit_same_error = True
+                    same_error_reason = (
+                        f"error signature recurred {top_count} times "
+                        f"(max_same_error={max_same_error}): {top_sig[:120]}"
+                    )
+            if hit_max_failed or hit_fail_rate or hit_same_error:
+                reasons = []
+                if hit_max_failed:
+                    reasons.append(f"failed={n_failed} reached max_failed={max_failed}")
+                if hit_fail_rate:
+                    reasons.append(
+                        f"failure_rate={fail_rate:.3f} reached "
+                        f"max_failure_rate={max_failure_rate}"
+                    )
+                if hit_same_error:
+                    reasons.append(same_error_reason)
+                print(
+                    "\n*** Fail-fast triggered — "
+                    + "; ".join(reasons)
+                    + ". Cancelling queued jobs and stopping early. ***\n"
+                )
+                pool.shutdown(wait=False, cancel_futures=True)
+                aborted = True
+                break
 
     except KeyboardInterrupt:
         interrupted = True
@@ -256,7 +323,7 @@ def run_jobs(
         )
         raise
     finally:
-        pool.shutdown(wait=not interrupted)
+        pool.shutdown(wait=not (interrupted or aborted))
 
     return completed, failed
 
@@ -274,3 +341,16 @@ def _safe_call(worker: Callable, job: Job) -> JobResult:
                 "traceback": traceback.format_exc(),
             },
         )
+
+
+def _error_signature(result: JobResult) -> str:
+    """Best-effort normalized signature for recurring-error detection."""
+    err = str(result.info.get("error", "")).strip()
+    if err:
+        return err
+    tb = str(result.info.get("traceback", "")).strip()
+    if tb:
+        lines = [ln.strip() for ln in tb.splitlines() if ln.strip()]
+        if lines:
+            return lines[-1]
+    return "unknown_error"

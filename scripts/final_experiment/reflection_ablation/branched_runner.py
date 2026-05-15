@@ -69,7 +69,9 @@ def run_branched_conversation(
     still carries enough provenance to be auditable:
 
       * ``reflection_attempts`` contains a single entry (the injected
-        broken draft), with both verdicts set to ``"INJECTED"``.
+        broken draft), with both verdicts set to ``"INJECTED"``. Note:
+        accepted-attempt draft text may be blanked by dedupe, so the
+        canonical branch text is always ``turn.user_message``.
       * ``is_fallback`` is False (the message was deliberately chosen,
         not produced by the reflection-exhaustion fallback path).
       * ``n_character_breaks`` and ``n_belief_breaks`` are 0 (the

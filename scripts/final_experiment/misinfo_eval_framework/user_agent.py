@@ -147,6 +147,11 @@ class SimulatedUserAgent:
                 "first_message_prompt and first_message are mutually exclusive. "
                 "Provide one or neither, not both."
             )
+        if self.max_reflect_retries < 0:
+            raise ValueError(
+                "max_reflect_retries must be >= 0. "
+                f"Got {self.max_reflect_retries}."
+            )
 
     # ═════════════════════════════════════════════════════════════════════════
     # Public API
@@ -296,7 +301,7 @@ class SimulatedUserAgent:
         log entry per turn, as the downstream simulation slicing
         expects).
         """
-        if self.max_reflect_retries == 0:
+        if self.max_reflect_retries <= 0:
             draft = draft_generator("")
             draft = self._guard_empty(draft, misinformation_belief)
             self._reflection_log.append({

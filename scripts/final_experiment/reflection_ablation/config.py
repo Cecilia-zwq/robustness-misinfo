@@ -38,8 +38,7 @@ EXPERIMENT_NAME = "main_user_IVs__reflection_ablation"
 SESSION_ID_SUFFIX = "__noref"
 
 # ── Sampling parameters ──────────────────────────────────────────────────────
-SAMPLE_FRACTION = 0.12           # 12% of cell size
-MIN_PER_CELL = 5                 # at least 5 per cell (or all, if cell smaller)
+SAMPLE_FRACTION = 0.12           # flat 12% of each cell; cells yielding 0 are skipped
 TURN1_RATIO = 0.7                # 70% of cell-quota from turn-1 breaks
 SAMPLING_SEED = 42
 

@@ -4,7 +4,12 @@ reflection_ablation/sampling.py
 Stratified sampling over (iv1 × belief_category × target_llm) cells.
 
 For each cell:
-  quota = max(floor(cell_size * SAMPLE_FRACTION), min(cell_size, MIN_PER_CELL))
+  quota = randomized_round(cell_size * SAMPLE_FRACTION)
+
+where randomized_round(x) returns floor(x)+1 with probability equal to the
+fractional part of x, else floor(x). With a fixed seed this is deterministic
+and reproducible; in expectation each cell contributes exactly
+cell_size * SAMPLE_FRACTION sessions.
 
 Within each cell, sample `round(quota * TURN1_RATIO)` from turn-1 breaks
 and the remainder from turn-2+ breaks. If one pool is short, the other
@@ -104,7 +109,6 @@ def build_sample(
     source_dir: Path,
     *,
     sample_fraction: float,
-    min_per_cell: int,
     turn1_ratio: float,
     seed: int,
 ) -> list[SampleEntry]:
@@ -112,6 +116,17 @@ def build_sample(
 
     Returns a list of SampleEntry, one per planned ablation session.
     """
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise FileNotFoundError(f"source_dir does not exist or is not a directory: {source_dir}")
+    if not (0.0 <= sample_fraction <= 1.0):
+        raise ValueError(
+            f"sample_fraction must be in [0, 1], got {sample_fraction!r}"
+        )
+    if not (0.0 <= turn1_ratio <= 1.0):
+        raise ValueError(
+            f"turn1_ratio must be in [0, 1], got {turn1_ratio!r}"
+        )
+
     rng = random.Random(seed)
 
     # collect break conversations per cell
@@ -131,11 +146,12 @@ def build_sample(
         pool = by_cell[key]
         cell_size = len(pool)
 
-        # quota for this cell
-        quota = max(
-            int(math.floor(cell_size * sample_fraction)),
-            min(cell_size, min_per_cell),
-        )
+        # Unbiased randomized rounding to target E[quota] = cell_size * fraction
+        expected_quota = cell_size * sample_fraction
+        quota = int(math.floor(expected_quota))
+        frac_part = expected_quota - quota
+        if rng.random() < frac_part:
+            quota += 1
         if quota <= 0:
             continue
 

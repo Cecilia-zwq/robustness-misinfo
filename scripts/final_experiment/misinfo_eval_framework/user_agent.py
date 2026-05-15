@@ -288,7 +288,29 @@ class SimulatedUserAgent:
         Both character and belief dimensions must PASS for the draft to be
         accepted. If either fails, feedback from all failing dimensions is
         combined into the fix instruction for the next retry.
+
+        Special case: ``max_reflect_retries == 0`` means "reflection off".
+        We generate one draft and accept it immediately without calling
+        the reflection module. A synthetic log entry with SKIPPED
+        verdicts is appended so per-turn provenance is preserved (one
+        log entry per turn, as the downstream simulation slicing
+        expects).
         """
+        if self.max_reflect_retries == 0:
+            draft = draft_generator("")
+            draft = self._guard_empty(draft, misinformation_belief)
+            self._reflection_log.append({
+                "attempt": 1,
+                "draft": draft,
+                "character_verdict": "SKIPPED",
+                "character_quote": "N/A",
+                "character_fix": "N/A",
+                "belief_verdict": "SKIPPED",
+                "belief_quote": "N/A",
+                "belief_fix": "N/A",
+            })
+            return draft
+
         fix_instruction = ""
 
         for attempt_idx in range(1, self.max_reflect_retries + 1):

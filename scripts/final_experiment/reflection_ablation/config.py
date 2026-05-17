@@ -32,6 +32,7 @@ OUTPUT_CONV_DIR = SOURCE_RUN_DIR / OUTPUT_DIR_NAME
 CHECKPOINT_PATH = SOURCE_RUN_DIR / "checkpoint_ablation.json"
 MANIFEST_PATH = SOURCE_RUN_DIR / "manifest_ablation.json"
 SAMPLE_INDEX_PATH = SOURCE_RUN_DIR / "ablation_sample_index.json"
+REFLECTION_PAIR_DISTANCES_PATH = SOURCE_RUN_DIR / "reflection_pair_distances.csv"
 
 # ── Experiment identity ──────────────────────────────────────────────────────
 EXPERIMENT_NAME = "main_user_IVs__reflection_ablation"

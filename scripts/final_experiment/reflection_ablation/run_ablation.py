@@ -172,17 +172,18 @@ def _worker(payload: dict) -> JobResult:
 # Sample plan + manifest
 # ════════════════════════════════════════════════════════════════════════════
 
-def _load_or_build_sample(rebuild: bool) -> list[SampleEntry]:
+def _load_or_build_sample(rebuild: bool, sample_fraction: float) -> list[SampleEntry]:
     if (not rebuild) and cfg.SAMPLE_INDEX_PATH.exists():
         planned = read_sample_index(cfg.SAMPLE_INDEX_PATH)
         print(f"\nLoaded {len(planned)} planned sessions from "
               f"{cfg.SAMPLE_INDEX_PATH.name}")
         return planned
 
-    print(f"\nBuilding sample plan from {cfg.SOURCE_CONV_DIR} ...")
+    print(f"\nBuilding sample plan from {cfg.SOURCE_CONV_DIR} "
+          f"(sample_fraction={sample_fraction}) ...")
     planned = build_sample(
         cfg.SOURCE_CONV_DIR,
-        sample_fraction=cfg.SAMPLE_FRACTION,
+        sample_fraction=sample_fraction,
         turn1_ratio=cfg.TURN1_RATIO,
         seed=cfg.SAMPLING_SEED,
     )
@@ -190,7 +191,7 @@ def _load_or_build_sample(rebuild: bool) -> list[SampleEntry]:
         cfg.SAMPLE_INDEX_PATH,
         planned=planned,
         params={
-            "sample_fraction": cfg.SAMPLE_FRACTION,
+            "sample_fraction": sample_fraction,
             "turn1_ratio": cfg.TURN1_RATIO,
             "seed": cfg.SAMPLING_SEED,
             "source_conv_dir": str(cfg.SOURCE_CONV_DIR),
@@ -235,7 +236,7 @@ def _list_completed_outputs() -> set[str]:
     return done
 
 
-def _write_manifest(*, n_planned: int, n_workers: int) -> None:
+def _write_manifest(*, n_planned: int, n_workers: int, sample_fraction: float) -> None:
     atomic_write_json(cfg.MANIFEST_PATH, {
         "experiment": cfg.EXPERIMENT_NAME,
         "phase": "ablation_conversations",
@@ -245,7 +246,7 @@ def _write_manifest(*, n_planned: int, n_workers: int) -> None:
         "n_sessions_planned": n_planned,
         "n_workers": n_workers,
         "sampling": {
-            "sample_fraction": cfg.SAMPLE_FRACTION,
+            "sample_fraction": sample_fraction,
             "turn1_ratio": cfg.TURN1_RATIO,
             "seed": cfg.SAMPLING_SEED,
         },
@@ -268,6 +269,11 @@ def main() -> None:
     p.add_argument("--rebuild-sample", action="store_true",
                    help="Re-derive the sampling plan from the source corpus, "
                         "overwriting ablation_sample_index.json.")
+    p.add_argument("--sample-fraction", type=float, default=None,
+                   help=f"Override cfg.SAMPLE_FRACTION ({cfg.SAMPLE_FRACTION}). "
+                        f"Pass 1.0 to ablate every break conversation in the "
+                        f"source corpus instead of a stratified subsample. "
+                        f"Only takes effect when the sampling plan is (re)built.")
     p.add_argument("--dry-run", action="store_true",
                    help="Build the sample plan and print stats, but do not "
                         "run any sessions.")
@@ -289,6 +295,12 @@ def main() -> None:
         p.error("--max-failure-rate must be in (0, 1]")
     if args.max_same_error is not None and args.max_same_error < 1:
         p.error("--max-same-error must be >= 1")
+    sample_fraction = (
+        args.sample_fraction if args.sample_fraction is not None
+        else cfg.SAMPLE_FRACTION
+    )
+    if not (0.0 < sample_fraction <= 1.0):
+        p.error("--sample-fraction must be in (0, 1]")
 
     # Ensure the source run actually exists.
     if not cfg.SOURCE_CONV_DIR.exists():
@@ -298,7 +310,7 @@ def main() -> None:
     print(f"\nSource conversations: {cfg.SOURCE_CONV_DIR}")
     print(f"Output conversations: {cfg.OUTPUT_CONV_DIR}")
 
-    planned = _load_or_build_sample(args.rebuild_sample)
+    planned = _load_or_build_sample(args.rebuild_sample, sample_fraction)
     jobs = _build_jobs(planned)
 
     if args.dry_run:
@@ -309,7 +321,11 @@ def main() -> None:
               f"{len(remaining)} would be executed.")
         return
 
-    _write_manifest(n_planned=len(jobs), n_workers=args.workers)
+    _write_manifest(
+        n_planned=len(jobs),
+        n_workers=args.workers,
+        sample_fraction=sample_fraction,
+    )
 
     completed_ids = _list_completed_outputs()
 

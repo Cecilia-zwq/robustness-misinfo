@@ -60,18 +60,22 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import (  # noqa: E402
     AnyRubric,
+    ConversationArtifact,
     Job,
     JobResult,
     RUBRICS,
     RunPaths,
+    atomic_write_json,
     read_conversation,
     run_jobs,
     safe_slug,
@@ -110,8 +114,15 @@ def _worker(payload: dict) -> JobResult:
     eval_provider: str = payload["eval_provider"]
     eval_model: str = payload["eval_model"]
     suffix_evaluator: bool = payload["suffix_evaluator"]
+    conv_path: Path | None = payload.get("conv_path")    # None → use paths
+    scores_dir: Path | None = payload.get("scores_dir")  # None → use paths
 
-    artifact = read_conversation(paths, sid)
+    if conv_path is not None:
+        with conv_path.open("r", encoding="utf-8") as fh:
+            artifact = ConversationArtifact.from_dict(json.load(fh))
+    else:
+        artifact = read_conversation(paths, sid)
+
     score_art = score_conversation(
         artifact=artifact,
         rubric=rubric,
@@ -119,7 +130,17 @@ def _worker(payload: dict) -> JobResult:
         evaluator_model=eval_model,
         temperature=cfg.EVALUATOR_TEMPERATURE,
     )
-    write_score_artifact(paths, score_art, suffix_with_evaluator=suffix_evaluator)
+
+    if scores_dir is not None:
+        scores_dir.mkdir(parents=True, exist_ok=True)
+        if suffix_evaluator:
+            evaluator_slug = safe_slug(score_art.evaluator_model)
+            fname = f"{sid}__{rubric.name}__{evaluator_slug}.json"
+        else:
+            fname = f"{sid}__{rubric.name}.json"
+        atomic_write_json(scores_dir / fname, asdict(score_art))
+    else:
+        write_score_artifact(paths, score_art, suffix_with_evaluator=suffix_evaluator)
 
     # Quick summary for progress display.
     means = {
@@ -221,6 +242,18 @@ def main() -> None:
              f"(e.g. {' '.join(_TARGET_SLUGS)}). Match is on the "
              "'__model-{slug}' suffix of the session_id.",
     )
+    p.add_argument(
+        "--conversations-dir", type=Path, default=None,
+        help="Override the conversations directory to score. Defaults to "
+             "<run-dir>/conversations. Use this to score a sibling directory "
+             "such as conversations_none_reflection/.",
+    )
+    p.add_argument(
+        "--scores-dir", type=Path, default=None,
+        help="Override the output directory for score files. Defaults to "
+             "<run-dir>/scores. Use together with --conversations-dir to "
+             "write noref scores into a separate folder (e.g. scores_none_reflection/).",
+    )
     args = p.parse_args()
 
     if args.workers < 1:
@@ -233,14 +266,24 @@ def main() -> None:
     rubric = RUBRICS[args.rubric]
     eval_provider, eval_model = EVALUATOR_REGISTRY[args.evaluator]
 
-    print(f"\nRun dir   : {paths.root}")
-    print(f"Rubric    : {rubric.name} (dims: {rubric.dimensions})")
-    print(f"Evaluator : {eval_provider}/{eval_model}")
-    print(f"Suffix    : {args.suffix_evaluator}")
+    # Resolve overrides (fall back to paths.* when not specified).
+    conv_dir   = args.conversations_dir or paths.conversations
+    scores_dir = args.scores_dir        or paths.scores
+
+    if not conv_dir.exists():
+        p.error(f"--conversations-dir does not exist: {conv_dir}")
+    scores_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\nRun dir       : {paths.root}")
+    print(f"Conversations : {conv_dir}")
+    print(f"Scores out    : {scores_dir}")
+    print(f"Rubric        : {rubric.name} (dims: {rubric.dimensions})")
+    print(f"Evaluator     : {eval_provider}/{eval_model}")
+    print(f"Suffix        : {args.suffix_evaluator}")
     if args.cell:
-        print(f"Cell      : {args.cell}")
+        print(f"Cell          : {args.cell}")
     if args.target:
-        print(f"Target    : {', '.join(args.target)}")
+        print(f"Target        : {', '.join(args.target)}")
     print()
 
     # Build jobs from conversations on disk. Skip ones whose score file
@@ -250,13 +293,16 @@ def main() -> None:
     eval_slug = safe_slug(f"{eval_provider}/{eval_model}")
 
     def already_scored(sid: str) -> bool:
-        if args.suffix_evaluator:
-            return paths.score_path(sid, f"{rubric.name}__{eval_slug}").exists()
-        return paths.score_path(sid, rubric.name).exists()
+        fname = (
+            f"{sid}__{rubric.name}__{eval_slug}.json"
+            if args.suffix_evaluator
+            else f"{sid}__{rubric.name}.json"
+        )
+        return (scores_dir / fname).exists()
 
     jobs: list[Job] = []
     n_filtered_out = 0
-    for path in sorted(paths.conversations.glob("*.json")):
+    for path in sorted(conv_dir.glob("*.json")):
         sid = path.stem
         if args.cell and not _matches_cell(sid, args.cell):
             n_filtered_out += 1
@@ -275,6 +321,8 @@ def main() -> None:
                 "eval_provider": eval_provider,
                 "eval_model": eval_model,
                 "suffix_evaluator": args.suffix_evaluator,
+                "conv_path": path,
+                "scores_dir": scores_dir,
             },
         ))
 

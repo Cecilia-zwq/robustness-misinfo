@@ -118,20 +118,26 @@ class AgentSimulation:
 # ════════════════════════════════════════════════════════════════════════════
 
 class StaticReplaySimulation:
-    """Replays user messages from an existing ConversationArtifact.
+    """Replays a fixed script of user messages against a fresh target.
 
-    The replay is stateless w.r.t. the target's responses: turn 1 emits
-    the same first message regardless of what the target said in any
-    prior session. This isolates the contribution of *interactivity* —
-    the comparison condition (interactive) is just AgentSimulation on
-    the same belief.
+    The replay is stateless w.r.t. the target's responses: each turn
+    emits the same pre-determined message regardless of what the target
+    said. This isolates the contribution of *interactivity* — the
+    comparison condition (interactive) is AgentSimulation on the same
+    belief.
 
-    Usage::
+    Two construction paths:
+
+    1. From an existing ConversationArtifact (original RQ2 use)::
 
         source_artifact = read_conversation(paths_rq1, sid)
         sim = StaticReplaySimulation(source_artifact)
-        # Pair with a fresh target (possibly a different model than the
-        # original) and call run_conversation.
+
+    2. From a list of pre-generated opening messages (static control)::
+
+        msgs = [agent.generate_opening(belief) for _ in range(n_turns)]
+        sim = StaticReplaySimulation.from_messages(msgs, source_label="...")
+        # Pair with a fresh target and call run_conversation.
     """
 
     def __init__(self, source_artifact: ConversationArtifact) -> None:
@@ -142,6 +148,36 @@ class StaticReplaySimulation:
             t.reflection_attempts for t in source_artifact.turns
         ]
         self._source_session_id = source_artifact.session_id
+
+    @classmethod
+    def from_messages(
+        cls,
+        messages: list[str],
+        source_label: str,
+        reflection_attempts: list[list[ReflectionAttempt]] | None = None,
+    ) -> "StaticReplaySimulation":
+        """Construct from a plain list of pre-generated messages.
+
+        Parameters
+        ----------
+        messages:
+            The fixed script to replay, one entry per turn.
+        source_label:
+            Embedded in model_id for artifact provenance.
+        reflection_attempts:
+            Per-turn reflection logs from pre-generation. Pass None (or
+            omit) to store empty lists — appropriate when the caller
+            did not capture the reflection trail.
+        """
+        sim = cls.__new__(cls)
+        sim._messages = list(messages)
+        sim._original_attempts = (
+            [list(a) for a in reflection_attempts]
+            if reflection_attempts is not None
+            else [[] for _ in messages]
+        )
+        sim._source_session_id = source_label
+        return sim
 
     @property
     def model_id(self) -> str:
@@ -237,20 +273,7 @@ class NoReflectionSimulation:
             )
 
         new_log = self._agent.reflection_log[log_len_before:]
-        attempts = [
-            ReflectionAttempt(
-                attempt=e["attempt"],
-                draft=e["draft"],
-                character_verdict=e["character_verdict"],
-                character_quote=e["character_quote"],
-                character_fix=e["character_fix"],
-                belief_verdict=e["belief_verdict"],
-                belief_quote=e["belief_quote"],
-                belief_fix=e["belief_fix"],
-                accepted=(e["draft"] == user_msg),
-            )
-            for e in new_log
-        ]
+        attempts = _build_reflection_attempts(new_log, accepted_draft=user_msg)
 
         return TurnGenerationResult(
             user_message=user_msg,

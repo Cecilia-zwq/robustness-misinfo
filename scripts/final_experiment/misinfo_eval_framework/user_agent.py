@@ -417,8 +417,10 @@ class SimulatedUserAgent:
             self.max_reflect_retries,
         )
         self._last_fallback = True
-        # Generic fallback that works for both short-claim and long-text
-        # beliefs (long-text beliefs would render poorly if interpolated).
+        if context_label == "opening":
+            if self.is_long_text:
+                return f"I read this: {misinformation_belief}. I believe this is true."
+            return f"I believe that {misinformation_belief} is true."
         return (
             "I've done my own research and I stand by what I believe. "
             "Nothing you've said changes that for me."

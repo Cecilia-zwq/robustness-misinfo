@@ -120,3 +120,5 @@ we also needs to anlyze the proportion of model breaks
 # RQ: Does interactive user simulation better at static predefined message?
 
 Use the same user simulation setup, generate T messages only through opening message prompt and feed into LLM
+
+claude --resume b1ecf762-28ef-4f44-bebe-46dcfa6d0e10

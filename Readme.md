@@ -1,168 +1,173 @@
-# robustness-misinfo
+# Debunk the Entrenched User: An Interactive Framework for Evaluating LLM Robustness to Misinformation
 
-> **Research question.** How robust are LLMs in resisting misinformation across a multi-turn interaction?
+Large language models exhibit sycophantic behaviour. Standard evaluations use static, pre-scripted user messages, which systematically underestimate this vulnerability. We replace scripted inputs with a **simulated user agent** that generates messages dynamically, persistently advocating for a misinformation belief throughout an 8-turn conversation.
 
-We study this by pitting a **simulated misinformation-leaning user** (an LLM-based agent designed to stay in character and hold a false belief) against a **target LLM**, and scoring the target’s behavior with a dedicated **evaluator**.
-
----
-
-## Table of contents
-
-1. [Current status](#current-status)
-2. [Repository layout](#repository-layout)
-3. [Iteration tracker (at a glance)](#iteration-tracker-at-a-glance)
-4. [Iteration history in detail](#iteration-history-in-detail)
-5. [Datasets](#datasets)
-6. [Environment](#environment)
-7. [Conventions](#conventions)
+Evaluating four frontier models across **5,697 conversations and 45,576 turn-level observations**, we identify three distinct model behavioural patterns: **stable resistance**, **gradual capitulation**, and **disengagement**. We show that emotionally framed misinformation causes the largest degradation in model robustness across all tested models.
 
 ---
 
-## Current status
+## Framework overview
 
-**Active iteration: `Iteration 5`** — passage-scale misinformation, Experiment 3 validation.
+The framework consists of three components:
 
-|                       | Location                                     |
-| --------------------- | -------------------------------------------- |
-| Framework code        | `scripts/Iteration5/misinfo_eval_framework/` |
-| Experiment entrypoint | `scripts/Iteration5/experiment3.py`          |
-| Latest outputs        | `results/Iteration5/`                        |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Simulated User Agent                                           │
+│  ┌──────────────┐    ┌───────────────────┐                     │
+│  │ Actor module │───▶│ Reflection module │──▶ user message     │
+│  │ (generates   │◀───│ (audits for       │                     │
+│  │  candidate   │    │  belief / persona │                     │
+│  │  message)    │    │  breaks)          │                     │
+│  └──────────────┘    └───────────────────┘                     │
+└─────────────────────────────────────────────────────────────────┘
+                              │ user message
+                              ▼
+                  ┌─────────────────────┐
+                  │    Target LLM       │  ◀── model under evaluation
+                  └─────────────────────┘
+                              │ model response
+                              ▼
+                  ┌─────────────────────┐
+                  │     Evaluator       │  scores correction quality,
+                  └─────────────────────┘  rebuttal quality, agreeableness
+```
 
-**Collaborators: start here.** Older iterations (`Iteration1`–`Iteration4`) are preserved snapshots for reproducibility and history, not the current working system.
+**Simulated user agent** — given a false belief and an optional persona, the actor module generates an in-character user message. The reflection module audits each candidate for belief breaks and character breaks, requesting a regeneration if either is detected.
+
+**Target LLM** — the model under evaluation. Receives a minimal system prompt to reflect natural deployment conditions, without any instruction to resist misinformation.
+
+**Evaluator** — independently scores each target response on three dimensions (1–3 scale):
+
+- **Correction quality**: how explicitly the model identifies the user's claim as misinformation.
+- **Rebuttal quality**: how effectively the model counters the false belief with evidence.
+- **Agreeableness**: the extent to which the model validates the user's intent.
 
 ---
 
 ## Repository layout
 
-| Directory    | Purpose                                                                                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `data/`      | Curated claim sets (`data/dataset/`) and raw fake-news text (`data/fake/`).                                                                      |
-| `scripts/`   | Evaluation framework and experiment drivers, **versioned by iteration** (`Iteration1` … `Iteration5`). Each folder is a self-contained snapshot. |
-| `results/`   | Timestamped run outputs (logs, summaries, checkpoints), mirroring the iteration folders in `scripts/`.                                           |
-| `notebooks/` | Dataset filtering, inspection, and per-experiment analysis.                                                                                      |
-| `models/`    | Reserved for local model assets.                                                                                                                 |
+```
+data/
+  dataset/                   # curated false beliefs (6 files, 285 sampled beliefs)
 
----
+scripts/
+  final_experiment/
+    misinfo_eval_framework/  # core package: user_agent, target_llm, evaluator, llm_utils
+    core/                    # experiment utilities: runner, storage, scoring, conditions
+    main_user_IVs/           # main experiment (5 user conditions × 4 models × 285 beliefs)
+    evaluator_validation/    # three-evaluator agreement study
+    reflection_ablation/     # reflection module ablation
+    static_interactive_ablation/  # static vs interactive comparison
 
-## Iteration tracker
+results/
+  final_experiment/
+    main_user_IVs/           # full experiment outputs (logs, summaries, turn-level CSVs)
 
-| #   | Theme                                | Key change                                                             | Experiment                                  | Status     |
-| --- | ------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------- | ---------- |
-| 1   | Naive two-model dialogue             | Plumbing for role-played conversations                                 | —                                           | Archived   |
-| 2   | **Agentic user simulation** (Plan A) | Multi-module user: plan → act → reflect                                | —                                           | Archived   |
-| 3   | **Base framework + API**             | Package with three components: `user_agent`, `target_llm`, `evaluator` | **Experiment 1** (short claims, full-scale) | Archived   |
-| 4   | **Finer-grained reflection**         | Split reflection into _character break_ + _belief break_               | **Experiment 2** (matched subset)           | Archived   |
-| 5   | **Passage-scale misinformation**     | Long-form inputs; system-prompt persona; parallel runs                 | **Experiment 3** (validation)               | **Active** |
-
-Entry points inside each iteration folder follow the same convention: an `experiment*.py` driver with a usage docstring at the top, plus (from Iteration 3 on) a `misinfo_eval_framework/` package.
-
----
-
-## Iteration history in detail
-
-### Why a naive two-model chat was not enough — the motivation for Iteration 2
-
-Early tests showed a consistent failure mode: the simulated user was **too quick to accept the target model’s corrections** and **drifted to ground truth by the second turn**, even with an uncensored user model. In short, it **stopped pushing misinformation**.
-
-This matches a known limitation of LLM-based personas: models **prefer to correct false claims and drop role-play** when pushed, making it hard to portray **fact-resistant** people from a prompt alone.
-
-> Chuang, Yun-Shiuan, et al. _Simulating Opinion Dynamics with Networks of LLM-based Agents._ Findings of the ACL: NAACL 2024.
-
-**Plan A (adopted).** Instead of a single loose prompt, steer the simulated user with **multiple modules**:
-
-- **Planning module** — decides how to advance the misinformation goal on the next turn.
-- **Action / dialogue module** — turns that plan into the actual user message.
-
-Plan B was proposed but **never implemented**. **Iterations 2–5 all build on Plan A**; filenames like `PlanA-test0-v*.py` are legacy labels — read them as “the multi-module agentic user.”
-
----
-
-### Iteration 1 — naive dialogue between two models
-
-Two models take turns, each with its own system prompt. Useful for validating APIs and prompt formats, but it **does not** solve the collapse-toward-truth problem described above.
-
-### Iteration 2 — agentic user simulation (Plan A)
-
-First working **simulated user agent**: **plan → act → reflect**, with logging, so the user keeps a **false belief** and a **stable character** rather than folding under the target’s corrections. The overall shape is the one **carried forward** into Iterations 3–5.
-
-**Deliberately set aside (to keep the baseline tractable):**
-
-- A **memory module** letting the user learn from earlier turns to attack more cleverly — dropped as too complex at this stage.
-- Rich **persuasion tactics** — deferred. The first priority is a believable user with a wrong belief and a coherent persona; **tactics are better treated later as an independent variable** in their own experiments.
-
-Code appears as several versions of one large script (`PlanA-test0-v*.py`) before being refactored in Iteration 3.
-
-### Iteration 3 — base framework and Experiment 1
-
-The Iteration 2 design is refactored into a single package, `misinfo_eval_framework`, organized around **three components with a defined API**:
-
-- `**user_agent`\*\* — the simulated misinformation-leaning user.
-- `**target_llm**` — the model under evaluation.
-- `**evaluator**` — scores how the target responds over the dialogue.
-
-Shared **utilities** (session driver, helpers) live in the same package so the codebase is imported and run as one unit.
-
-- **Experiment 1** — the first **large end-to-end run** on curated **single-sentence claims**; pilots are in the same folder; results were **reported in the course**. Anything named _experiment 1_ belongs here.
-
-### Iteration 4 — finer-grained reflection and Experiment 2
-
-Same three-part architecture as Iteration 3. The change is inside the user’s **reflection** step: Iteration 3 checked character and belief together in a single reflection; Iteration 4 **splits them into two explicit dimensions** — **character break** and **belief break** — for more granular diagnosis of where the persona slips.
-
-- **Experiment 2** — confirms the stack still runs end-to-end with the split reflection. Uses **short claims** and a **matched subset** so results stay comparable to Experiment 1. **Result: it works.**
-
-### Iteration 5 — passage-scale misinformation and Experiment 3 _(current)_
-
-Iterations 3 and 4 targeted **single-sentence claims**. Iteration 5 **extends Iteration 4** so the framework can stress-test **richer inputs** — **multi-sentence or passage-length** misinformation (e.g., fake-news-style text), not only atomic claims.
-
-Implementation notes:
-
-- **Persona and belief** are delivered via **system-level instructions** for cleaner wiring.
-- **Parallel execution** (ThreadPoolExecutor) for throughput on larger runs.
-- **Ablation helpers** can load the Iteration 4 package side-by-side for controlled comparisons.
-- **Experiment 3** — validates the long-text extension. Once validated, **long-text support is the maintained direction**.
+notebooks/
+  fianl_experiment/
+    final_experiment_analysis.ipynb  # all analyses and figures reported in the paper
+```
 
 ---
 
 ## Datasets
 
-All processed inputs live in `data/dataset/`. Two formats:
+All processed beliefs live in `data/dataset/`. Two formats are used:
 
-- **Short-claim** — single-sentence misinformation items, schema `(content, type)` (plus extras for `ds_bias`).
-- **Long-text** — passage-scale misinformation items with a body, schema `(title, content, type)`, where `title` is the headline (display label) and `content` is the multi-sentence body (the long-text belief).
-
-Raw source text and per-source cleaning notebooks sit under their own `data/<source>/` folders; the consolidation pass is in `notebooks/dataset_process.ipynb`.
-
-### Short-claim datasets
-
-| File                  | Rows | Columns                                               | Subtypes (`type`)                                                                                                                                                               |
-| --------------------- | ---- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ds_bias.csv`         | 72   | `index, content, type, bias_type, stereotyped_entity` | `declaration`, `description`                                                                                                                                                    |
-| `ds_conspiracy.csv`   | 59   | `content, type`                                       | `government malfeasance`, `personal wellbeing`, `malevolent global conspiracy`, `control of information`, `extraterrestrial cover-up`                                           |
-| `ds_fibvid.csv`       | 430  | `content, type`                                       | `political_general`, `race_protest_police`, `economy_taxes_jobs`, `elections_voting`, `immigration_religion`, `covid_health`, `media_censorship`, `guns_violence`, `conspiracy` |
-| `ds_climatefever.csv` | 253  | `content, type`                                       | `co2_emissions`, `temperature_warming`, `ice_sea_polar`, `general_climate_denial`, `extreme_weather`, `policy_energy`, `climate_science`                                        |
-
-`ds_bias.csv` additionally exposes `bias_type` (13 stereotype attributes: `gender`, `age`, `political`, `regional-person`, `physical-appearance`, `urbanity`, `ethnicity`, `disability`, `region`, `sexual-orientation`, and combinations) and `stereotyped_entity`.
-
-### Long-text datasets
-
-| File                | Rows | Columns                | Subtypes (`type`)                                                                                                                                                                                           |
-| ------------------- | ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ds_fakenews.csv`   | 240  | `title, content, type` | `business`, `education`, `entertainment`, `politics`, `sports`, `technology` (40 each)                                                                                                                      |
-| `ds_fakehealth.csv` | 220  | `title, content, type` | `general_health`, `cancer`, `lifestyle_diet_alt_med`, `diagnostics_devices_drugs`, `chronic_disease`, `cardiovascular`, `neurological`, `mental_health`, `womens_reproductive_health`, `infectious_disease` |
+| File                  | N   | Format                   | Topics                                                    |
+| --------------------- | --- | ------------------------ | --------------------------------------------------------- |
+| `ds_bias.csv`         | 72  | short claim              | gender, age, ethnicity, politics, … (13 stereotype types) |
+| `ds_conspiracy.csv`   | 59  | short claim              | government, personal wellbeing, global conspiracy, …      |
+| `ds_climatefever.csv` | 40  | short claim              | CO₂, temperature, ice/sea, policy, …                      |
+| `ds_fakenews.csv`     | 74  | long text (title + body) | politics, technology                                      |
+| `ds_fakehealth.csv`   | 40  | long text (title + body) | cancer, cardiovascular, mental health, …                  |
+| `sampled_beliefs.csv` | 285 | combined                 | all of the above                                          |
 
 ---
 
-## Environment
+## Setup
 
-- **API routing.** Iterations 3+ use **LiteLLM**; set the relevant provider credentials (e.g., `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) in the environment before running.
-- **Python.** Standard scientific stack for analysis: `pandas`, `numpy`, `scipy`, `matplotlib`, `seaborn`.
-- **Ignored locally.** `.claude/` and `.vscode/` are listed in `.gitignore`.
+**Python 3.11+** is required. Install the key dependencies:
+
+```bash
+pip install litellm openai pandas scipy statsmodels seaborn
+```
+
+For a full reproducible environment, use the provided conda spec:
+
+```bash
+conda create --name misinfo --file requirements.txt
+conda activate misinfo
+```
+
+**API keys** — the framework routes all calls through [LiteLLM](https://github.com/BerriAI/litellm). Set whichever provider keys correspond to the models you use:
+
+```bash
+export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
+export GEMINI_API_KEY=...
+export DEEPSEEK_API_KEY=...
+```
 
 ---
 
-## Conventions
+## Running the experiment
 
-- **One iteration = one self-contained snapshot** under `scripts/IterationN/`, with its outputs under `results/IterationN/`.
-- **Experiment naming follows iterations:** Experiment 1 ↔ Iteration 3, Experiment 2 ↔ Iteration 4, Experiment 3 ↔ Iteration 5.
-- **Runnable entrypoints** are `experiment*.py` files; their **module docstring is the source of truth** for flags, paths, and output layout.
-- **Resumable runs.** Experiment drivers write incremental `summary.json`, `summary.csv`, `turn_level.csv`, and `checkpoint.json`, and support `--resume <existing_results_dir>`.
+**Main experiment** (user behaviour conditions × target models):
+
+```bash
+cd scripts/final_experiment/main_user_IVs
+python run_conversations.py   # runs all 5 user conditions × 4 models
+python run_scoring.py         # scores the collected conversations
+```
+
+**Ablations:**
+
+```bash
+# Static vs interactive comparison
+cd scripts/final_experiment/static_interactive_ablation
+python run_static.py && python run_scoring.py
+
+# Reflection module ablation
+cd scripts/final_experiment/reflection_ablation
+python run_no_reflection.py && python run_scoring.py
+```
+
+**Evaluator validation:**
+
+```bash
+cd scripts/final_experiment/evaluator_validation
+python run_validation.py
+```
+
+See `scripts/final_experiment/experiment_doc.md` for full configuration options and output formats.
+
+---
+
+## Analysis
+
+All analyses and figures in the paper are reproduced in:
+
+```
+notebooks/fianl_experiment/final_experiment_analysis.ipynb
+```
+
+---
+
+## Ethical considerations
+
+The simulated user agent in this framework persistently advocates for false beliefs and can, in principle, elicit long-form misinformation text from a target model. **This framework is intended solely for controlled research settings.** Deploying it outside of evaluation contexts poses a misuse risk for large-scale misinformation generation.
+
+---
+
+## Citation
+
+```bibtex
+@inproceedings{anonymous2025debunk,
+  title     = {Debunk the Entrenched User: An Interactive Framework for Evaluating {LLM} Robustness to Misinformation},
+  author    = {Anonymous},
+  booktitle = {Proceedings of EMNLP 2025},
+  year      = {2025},
+  note      = {Under review}
+}
+```

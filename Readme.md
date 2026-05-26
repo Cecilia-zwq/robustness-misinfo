@@ -82,14 +82,14 @@ notebooks/
 
 All processed beliefs live in `data/dataset/`. The 285 beliefs used in the experiment are drawn from five source datasets:
 
-| File                  | N   | Format                   | Source                                | Topics                                                    |
-| --------------------- | --- | ------------------------ | ------------------------------------- | --------------------------------------------------------- |
-| `ds_bias.csv`         | 72  | short claim              | BiasShades                            | gender, age, ethnicity, politics, … (13 stereotype types) |
-| `ds_conspiracy.csv`   | 59  | short claim              | Generic Conspiracist Beliefs Scale    | government, personal wellbeing, global conspiracy, …      |
-| `ds_climatefever.csv` | 40  | short claim              | Climate-FEVER                         | CO₂, temperature, ice/sea, policy, …                      |
-| `ds_fakenews.csv`     | 74  | long text (title + body) | FakeNewsAMT                           | politics, technology                                      |
-| `ds_fakehealth.csv`   | 40  | long text (title + body) | FakeHealth                            | cancer, cardiovascular, mental health, …                  |
-| `sampled_beliefs.csv` | 285 | combined                 | all of the above                      | all of the above                                          |
+| File                  | N   | Format                   | Source                             | Topics                                                    |
+| --------------------- | --- | ------------------------ | ---------------------------------- | --------------------------------------------------------- |
+| `ds_bias.csv`         | 72  | short claim              | BiasShades                         | gender, age, ethnicity, politics, … (13 stereotype types) |
+| `ds_conspiracy.csv`   | 59  | short claim              | Generic Conspiracist Beliefs Scale | government, personal wellbeing, global conspiracy, …      |
+| `ds_climatefever.csv` | 40  | short claim              | Climate-FEVER                      | CO₂, temperature, ice/sea, policy, …                      |
+| `ds_fakenews.csv`     | 74  | long text (title + body) | FakeNewsAMT                        | politics, technology                                      |
+| `ds_fakehealth.csv`   | 40  | long text (title + body) | FakeHealth                         | cancer, cardiovascular, mental health, …                  |
+| `sampled_beliefs.csv` | 285 | combined                 | all of the above                   | all of the above                                          |
 
 `sampled_beliefs.json` contains the same 285 beliefs in the format consumed by the experiment scripts. `ds_fibvid.csv` is present in the dataset folder but was not included in the final experiment.
 
@@ -170,17 +170,3 @@ The notebook reads from `results/final_experiment/main_user_IVs/` and writes fig
 ## Ethical considerations
 
 The simulated user agent in this framework persistently advocates for false beliefs and can, in principle, elicit long-form misinformation text from a target model. **This framework is intended solely for controlled research settings.** Deploying it outside of evaluation contexts poses a misuse risk for large-scale misinformation generation. The misinformation datasets used contain offensive language and should not be used as training data.
-
----
-
-## Citation
-
-```bibtex
-@inproceedings{anonymous2025fragility,
-  title     = {The Fragility of Correction: Evaluating {LLM} Robustness to Misinformation in Multi-Turn Dialogues},
-  author    = {Anonymous},
-  booktitle = {Proceedings of EMNLP 2025},
-  year      = {2025},
-  note      = {Under review}
-}
-```

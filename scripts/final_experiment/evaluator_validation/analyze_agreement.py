@@ -32,10 +32,7 @@ from sklearn.metrics import cohen_kappa_score, confusion_matrix
 
 # %%
 # ── Paths ───────────────────────────────────────────────────────────────────
-RUN_DIR = Path(
-    "/home/wzhan969/robustness-misinfo/results/final_experiment/"
-    "main_user_IVs/20260427_165233"
-)
+RUN_DIR = Path(__file__).resolve().parents[3] / "results" / "final_experiment" / "main_user_IVs" / "20260427_165233"
 CONV_DIR = RUN_DIR / "conversations"
 SCORE_DIR = RUN_DIR / "scores"
 VALIDATION_DIR = RUN_DIR / "evaluator_validation"

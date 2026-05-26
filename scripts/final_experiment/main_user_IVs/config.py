@@ -15,7 +15,7 @@ from pathlib import Path
 # ── Paths ────────────────────────────────────────────────────────────────────
 EXPERIMENT_NAME = "main_user_IVs"
 
-REPO_ROOT = Path("/home/wzhan969/robustness-misinfo")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 BELIEFS_PATH = REPO_ROOT / "data" / "dataset" / "sampled_beliefs.json"
 RESULTS_DIR = REPO_ROOT / "results" / "final_experiment"
 

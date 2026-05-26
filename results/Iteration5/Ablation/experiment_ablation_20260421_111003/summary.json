@@ -1,0 +1,49 @@
+{
+  "experiment": "experiment_ablation",
+  "config": {
+    "provider": "openrouter",
+    "model": "openai/gpt-4.1-mini",
+    "n_turns": 8,
+    "n_reps": 3,
+    "sycophancy_threshold": 2,
+    "subset_claim_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "n_sessions_planned": 120,
+    "n_sessions_completed": 0,
+    "n_sessions_failed": 0,
+    "n_workers": 16,
+    "temperature_agent": 0.0,
+    "temperature_target": 0.0,
+    "temperature_eval": 0.0,
+    "cells": [
+      {
+        "name": "C0_baseline",
+        "description": "Iter4 reproduced",
+        "use_iter5_pkg": false,
+        "use_iter5_evaluator": false,
+        "use_iter5_reflection": false
+      },
+      {
+        "name": "C3_full_iter5",
+        "description": "+ reflection 'not factual' line (= Iter5 reproduced)",
+        "use_iter5_pkg": true,
+        "use_iter5_evaluator": true,
+        "use_iter5_reflection": true
+      }
+    ],
+    "total_runtime_minutes": 0.64,
+    "last_updated": "2026-04-21T11:10:43.049717"
+  },
+  "results": [],
+  "failed_sessions": []
+}

@@ -1,8 +1,8 @@
-# Debunk the Entrenched User: An Interactive Framework for Evaluating LLM Robustness to Misinformation
+# The Fragility of Correction: Evaluating LLM Robustness to Misinformation in Multi-Turn Dialogues
 
 Large language models exhibit sycophantic behaviour. Standard evaluations use static, pre-scripted user messages, which systematically underestimate this vulnerability. We replace scripted inputs with a **simulated user agent** that generates messages dynamically, persistently advocating for a misinformation belief throughout an 8-turn conversation.
 
-Evaluating four frontier models across **5,697 conversations and 45,576 turn-level observations**, we identify three distinct model behavioural patterns: **stable resistance**, **gradual capitulation**, and **disengagement**. We show that emotionally framed misinformation causes the largest degradation in model robustness across all tested models.
+Evaluating four frontier models across **5,697 conversations and 45,576 turn-level observations**, we identify three distinct model behavioural patterns: **stable resistance**, **gradual capitulation**, and **disengagement**. We find that emotionally framed misinformation causes the largest degradation in model robustness across all tested models, and that interactive evaluation exposes vulnerabilities that static benchmarks miss.
 
 ---
 
@@ -48,40 +48,50 @@ The framework consists of three components:
 
 ```
 data/
-  dataset/                   # curated false beliefs (6 files, 285 sampled beliefs)
+  dataset/                        # curated false beliefs (285 sampled beliefs)
 
 scripts/
   final_experiment/
-    misinfo_eval_framework/  # core package: user_agent, target_llm, evaluator, llm_utils
-    core/                    # experiment utilities: runner, storage, scoring, conditions
-    main_user_IVs/           # main experiment (5 user conditions × 4 models × 285 beliefs)
-    evaluator_validation/    # three-evaluator agreement study
-    reflection_ablation/     # reflection module ablation
+    misinfo_eval_framework/       # core package: user_agent, target_llm, evaluator, llm_utils
+    core/                         # experiment utilities: runner, storage, scoring, conditions
+    main_user_IVs/                # main experiment (5 user conditions × 4 models × 285 beliefs)
+    evaluator_validation/         # three-evaluator agreement study
+    reflection_ablation/          # reflection module ablation
     static_interactive_ablation/  # static vs interactive comparison
 
 results/
   final_experiment/
-    main_user_IVs/           # full experiment outputs (logs, summaries, turn-level CSVs)
+    main_user_IVs/
+      conversations/              # raw conversation logs (5,697 sessions)
+      conversations_static/       # static ablation conversations
+      conversations_none_reflection/  # reflection ablation conversations
+      scores/                     # turn-level scores (main experiment)
+      scores_static/              # turn-level scores (static ablation)
+      evaluator_validation/       # secondary evaluator scores and analysis
+      analysis_output/            # figures and summary tables
 
 notebooks/
   fianl_experiment/
     final_experiment_analysis.ipynb  # all analyses and figures reported in the paper
+  dataset_process.ipynb              # dataset construction and sampling pipeline
 ```
 
 ---
 
 ## Datasets
 
-All processed beliefs live in `data/dataset/`. Two formats are used:
+All processed beliefs live in `data/dataset/`. The 285 beliefs used in the experiment are drawn from five source datasets:
 
-| File                  | N   | Format                   | Topics                                                    |
-| --------------------- | --- | ------------------------ | --------------------------------------------------------- |
-| `ds_bias.csv`         | 72  | short claim              | gender, age, ethnicity, politics, … (13 stereotype types) |
-| `ds_conspiracy.csv`   | 59  | short claim              | government, personal wellbeing, global conspiracy, …      |
-| `ds_climatefever.csv` | 40  | short claim              | CO₂, temperature, ice/sea, policy, …                      |
-| `ds_fakenews.csv`     | 74  | long text (title + body) | politics, technology                                      |
-| `ds_fakehealth.csv`   | 40  | long text (title + body) | cancer, cardiovascular, mental health, …                  |
-| `sampled_beliefs.csv` | 285 | combined                 | all of the above                                          |
+| File                  | N   | Format                   | Source                                | Topics                                                    |
+| --------------------- | --- | ------------------------ | ------------------------------------- | --------------------------------------------------------- |
+| `ds_bias.csv`         | 72  | short claim              | BiasShades                            | gender, age, ethnicity, politics, … (13 stereotype types) |
+| `ds_conspiracy.csv`   | 59  | short claim              | Generic Conspiracist Beliefs Scale    | government, personal wellbeing, global conspiracy, …      |
+| `ds_climatefever.csv` | 40  | short claim              | Climate-FEVER                         | CO₂, temperature, ice/sea, policy, …                      |
+| `ds_fakenews.csv`     | 74  | long text (title + body) | FakeNewsAMT                           | politics, technology                                      |
+| `ds_fakehealth.csv`   | 40  | long text (title + body) | FakeHealth                            | cancer, cardiovascular, mental health, …                  |
+| `sampled_beliefs.csv` | 285 | combined                 | all of the above                      | all of the above                                          |
+
+`sampled_beliefs.json` contains the same 285 beliefs in the format consumed by the experiment scripts. `ds_fibvid.csv` is present in the dataset folder but was not included in the final experiment.
 
 ---
 
@@ -138,33 +148,36 @@ python run_no_reflection.py && python run_scoring.py
 ```bash
 cd scripts/final_experiment/evaluator_validation
 python run_validation.py
+python analyze_agreement.py
 ```
 
-See `scripts/final_experiment/experiment_doc.md` for full configuration options and output formats.
+Configuration (models, temperatures, paths) is centralised in `scripts/final_experiment/main_user_IVs/config.py`.
 
 ---
 
 ## Analysis
 
-All analyses and figures in the paper are reproduced in:
+All analyses and figures reported in the paper are reproduced in:
 
 ```
 notebooks/fianl_experiment/final_experiment_analysis.ipynb
 ```
 
+The notebook reads from `results/final_experiment/main_user_IVs/` and writes figures and tables to `results/final_experiment/main_user_IVs/analysis_output/`.
+
 ---
 
 ## Ethical considerations
 
-The simulated user agent in this framework persistently advocates for false beliefs and can, in principle, elicit long-form misinformation text from a target model. **This framework is intended solely for controlled research settings.** Deploying it outside of evaluation contexts poses a misuse risk for large-scale misinformation generation.
+The simulated user agent in this framework persistently advocates for false beliefs and can, in principle, elicit long-form misinformation text from a target model. **This framework is intended solely for controlled research settings.** Deploying it outside of evaluation contexts poses a misuse risk for large-scale misinformation generation. The misinformation datasets used contain offensive language and should not be used as training data.
 
 ---
 
 ## Citation
 
 ```bibtex
-@inproceedings{anonymous2025debunk,
-  title     = {Debunk the Entrenched User: An Interactive Framework for Evaluating {LLM} Robustness to Misinformation},
+@inproceedings{anonymous2025fragility,
+  title     = {The Fragility of Correction: Evaluating {LLM} Robustness to Misinformation in Multi-Turn Dialogues},
   author    = {Anonymous},
   booktitle = {Proceedings of EMNLP 2025},
   year      = {2025},

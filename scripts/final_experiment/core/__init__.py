@@ -52,6 +52,7 @@ from .scoring import (
     ScoreArtifact,
     TurnScores,
     score_conversation,
+    score_one_turn,
     score_run,
     write_score_artifact,
 )
@@ -140,6 +141,7 @@ __all__ = [
     "ScoreArtifact",
     "TurnScores",
     "score_conversation",
+    "score_one_turn",
     "write_score_artifact",
     "score_run",
     # runner

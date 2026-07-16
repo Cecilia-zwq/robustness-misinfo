@@ -300,6 +300,230 @@ snapshot_df.round(2).to_csv(snapshot_out, index=False)
 print(f"\nSaved → {snapshot_out}")
 
 # %% [markdown]
+# ## Affective-validation subset: emotional sessions where
+# correction/rebuttal have collapsed to 1 by turn 8 but agreeableness
+# has not
+#
+# "Affective validation" here means the model has narrowed to pure
+# emotional validation with no epistemic pushback left: the session was
+# run under the `emotional` persona condition (`iv1 == "emotional"`),
+# and by turn 8 both correction and rebuttal have bottomed out at
+# `cfg.LOW_SCORE` (1 — no correction / no rebuttal offered) while
+# agreeableness has stayed at `cfg.HIGH_SCORE` (3 — i.e. the model
+# hasn't gone silent too, it's still actively validating). Filter is
+# applied at the session level via each session's turn-8 row.
+
+# %%
+AV_MIN_AGREEABLENESS = cfg.HIGH_SCORE  # 3.0
+
+t8 = df[df["turn"] == cfg.LAST_TURN].set_index("session_id")
+av_mask = (
+    (t8["iv1"] == "emotional")
+    & (t8["correction"] == cfg.LOW_SCORE)
+    & (t8["rebuttal"] == cfg.LOW_SCORE)
+    & (t8["agreeableness"] == AV_MIN_AGREEABLENESS)
+)
+av_session_ids = t8.index[av_mask]
+n_av_sessions = len(av_session_ids)
+print(
+    f"\nAffective-validation subset: {n_av_sessions} session(s) "
+    f"(iv1=emotional, correction_{cfg.LAST_TURN}=rebuttal_{cfg.LAST_TURN}="
+    f"{cfg.LOW_SCORE:.0f}, agreeableness_{cfg.LAST_TURN}=={AV_MIN_AGREEABLENESS:.0f})"
+)
+
+df_av = df[df["session_id"].isin(av_session_ids)].copy()
+df_av_parsed = df_av[df_av["stance_label"] != "unparsed"].copy()
+
+# %% [markdown]
+# ## Figure: affective-validation subset, all target models pooled
+#
+# Mirrors the top-level "overall" figure (no per-model facets) — same
+# `_draw_stance_panel` single-panel layout, but restricted to the
+# affective-validation sessions instead of the full/no-filter sample.
+
+# %%
+av_pooled_stats: dict = {}
+
+if n_av_sessions == 0:
+    print("Skipping pooled affective-validation figure — no sessions matched the filter.")
+else:
+    av_pooled_c, av_pooled_r, av_pooled_a, av_pooled_pct = _stance_pct_and_means(
+        df_av, df_av_parsed, turns,
+    )
+    av_pooled_stats = {
+        "n": n_av_sessions, "mean_c": av_pooled_c, "mean_r": av_pooled_r,
+        "mean_a": av_pooled_a, "pct": av_pooled_pct,
+    }
+
+    fig, ax_bar = plt.subplots(figsize=(9, 6))
+    ax_line = _draw_stance_panel(
+        ax_bar, turns, av_pooled_c, av_pooled_r, av_pooled_a, av_pooled_pct, bar_labels=True,
+    )
+
+    h_bar, l_bar = ax_bar.get_legend_handles_labels()
+    h_line, l_line = ax_line.get_legend_handles_labels()
+    ax_bar.legend(
+        h_bar + h_line, l_bar + l_line,
+        loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3, frameon=True,
+    )
+
+    ax_bar.set_title(
+        "History-aware stance vs. correction/rebuttal/agreeableness quality\n"
+        f"Affective-validation subset, all models pooled: emotional sessions, "
+        f"correction=rebuttal=1 at T{cfg.LAST_TURN}, agreeableness == "
+        f"{AV_MIN_AGREEABLENESS:.0f} at T{cfg.LAST_TURN}  (N={n_av_sessions})"
+    )
+
+    plt.tight_layout()
+    out_path_av_pooled = (
+        cfg.OUT_DIR / "plots" / f"fig_stance_history_affective_validation_pooled{SUFFIX}.png"
+    )
+    plt.savefig(out_path_av_pooled)
+    plt.show()
+    print(f"\nSaved → {out_path_av_pooled}")
+
+# %% [markdown]
+# ## Figure: affective-validation subset, faceted by target model
+
+# %%
+present_models_av = [m for m in cfg.MODEL_ORDER if m in df_av["target_model"].unique()]
+av_model_stats: dict[str, dict] = {}
+
+if n_av_sessions == 0:
+    print("Skipping affective-validation figure — no sessions matched the filter.")
+else:
+    fig, axes = plt.subplots(2, 2, figsize=(15, 11))
+    for ax_m, model in zip(axes.flat, present_models_av):
+        sub = df_av[df_av["target_model"] == model]
+        sub_parsed = df_av_parsed[df_av_parsed["target_model"] == model]
+        n_model = sub["session_id"].nunique()
+
+        m_mean_c, m_mean_r, m_mean_a, m_pct = _stance_pct_and_means(sub, sub_parsed, turns)
+        av_model_stats[model] = {
+            "n": n_model, "mean_c": m_mean_c, "mean_r": m_mean_r,
+            "mean_a": m_mean_a, "pct": m_pct,
+        }
+        _draw_stance_panel(ax_m, turns, m_mean_c, m_mean_r, m_mean_a, m_pct)
+        ax_m.set_title(f"{cfg.MODEL_LABELS.get(model, model)}  (N={n_model})")
+
+    for ax_off in axes.flat[len(present_models_av):]:
+        ax_off.axis("off")
+
+    fig.legend(
+        proxy_bars + proxy_lines,
+        [f"Stance: {lbl}" for lbl in cfg.STANCE_ORDER]
+        + ["Correction (mean)", "Rebuttal (mean)", "Agreeableness (mean)"],
+        loc="lower center", bbox_to_anchor=(0.5, -0.02), ncol=3, frameon=True,
+    )
+
+    fig.suptitle(
+        "History-aware stance vs. correction/rebuttal/agreeableness quality, by target model\n"
+        f"Affective-validation subset: emotional sessions, correction=rebuttal=1 at T{cfg.LAST_TURN}, "
+        f"agreeableness == {AV_MIN_AGREEABLENESS:.0f} at T{cfg.LAST_TURN}  (N={n_av_sessions})",
+        y=1.0,
+    )
+
+    plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+    out_path_av_by_model = (
+        cfg.OUT_DIR / "plots" / f"fig_stance_history_affective_validation_by_model{SUFFIX}.png"
+    )
+    plt.savefig(out_path_av_by_model)
+    plt.show()
+    print(f"\nSaved → {out_path_av_by_model}")
+
+# %% [markdown]
+# ## Per-model snapshot table (T1 / T5 / T8) — affective-validation subset
+#
+# Same SNAPSHOT_TURNS / structure as the full-sample snapshot table
+# above, read out of `av_model_stats` (and `av_pooled_stats` for the
+# all-models-pooled row) so it can't drift from the figures just
+# plotted. The pooled row lets you quote a single aggregate number
+# instead of reading four per-model lines.
+
+# %%
+if n_av_sessions == 0:
+    av_snapshot_df = pd.DataFrame()
+    print("Skipping affective-validation snapshot table — no sessions matched the filter.")
+else:
+    av_snapshot_rows = []
+    for t in SNAPSHOT_TURNS:
+        if t not in av_pooled_stats["mean_c"].index:
+            continue
+        av_snapshot_rows.append({
+            "target_model":       "All models (pooled)",
+            "n":                  av_pooled_stats["n"],
+            "turn":               t,
+            "mean_correction":    av_pooled_stats["mean_c"].loc[t],
+            "mean_rebuttal":      av_pooled_stats["mean_r"].loc[t],
+            "mean_agreeableness": av_pooled_stats["mean_a"].loc[t],
+            **{f"pct_{lbl}": av_pooled_stats["pct"].loc[t, lbl] for lbl in cfg.STANCE_ORDER},
+        })
+    for model in present_models_av:
+        stats = av_model_stats[model]
+        for t in SNAPSHOT_TURNS:
+            if t not in stats["mean_c"].index:
+                continue
+            av_snapshot_rows.append({
+                "target_model":       model,
+                "n":                  stats["n"],
+                "turn":               t,
+                "mean_correction":    stats["mean_c"].loc[t],
+                "mean_rebuttal":      stats["mean_r"].loc[t],
+                "mean_agreeableness": stats["mean_a"].loc[t],
+                **{f"pct_{lbl}": stats["pct"].loc[t, lbl] for lbl in cfg.STANCE_ORDER},
+            })
+
+    av_snapshot_df = pd.DataFrame(av_snapshot_rows)
+
+    print(f"\nAffective-validation snapshot at turns {SNAPSHOT_TURNS} (N={n_av_sessions} sessions):")
+    for group_label, group_key in [("All models (pooled)", "All models (pooled)")] + [
+        (cfg.MODEL_LABELS.get(m, m), m) for m in present_models_av
+    ]:
+        sub = av_snapshot_df[av_snapshot_df["target_model"] == group_key]
+        n = sub["n"].iloc[0]
+        print(f"\n{group_label}  (N={n})")
+        for row in sub.itertuples(index=False):
+            print(
+                f"  T{row.turn}: c={row.mean_correction:.2f} r={row.mean_rebuttal:.2f} "
+                f"a={row.mean_agreeableness:.2f}  |  "
+                f"False={row.pct_False:.1f}%  Uncertain={row.pct_Uncertain:.1f}%  True={row.pct_True:.1f}%"
+            )
+
+    av_snapshot_out = (
+        cfg.OUT_DIR / "tables" / f"stance_history_affective_validation_snapshot{SUFFIX}.csv"
+    )
+    av_snapshot_df.round(2).to_csv(av_snapshot_out, index=False)
+    print(f"\nSaved → {av_snapshot_out}")
+
+# %% [markdown]
+# ## Aggregated (all-models-pooled) snapshot table — affective-validation
+# subset
+#
+# Standalone pull of just the "All models (pooled)" rows from
+# `av_snapshot_df` above, saved as its own table so the headline
+# aggregate numbers don't have to be filtered out of the per-model file.
+
+# %%
+if n_av_sessions == 0:
+    av_pooled_snapshot_df = pd.DataFrame()
+    print("Skipping aggregated affective-validation snapshot table — no sessions matched the filter.")
+else:
+    av_pooled_snapshot_df = (
+        av_snapshot_df[av_snapshot_df["target_model"] == "All models (pooled)"]
+        .drop(columns="target_model")
+        .reset_index(drop=True)
+    )
+
+    print(f"\nAggregated (pooled) affective-validation snapshot at turns {SNAPSHOT_TURNS} (N={n_av_sessions} sessions):")
+    print(av_pooled_snapshot_df.round(2).to_string(index=False))
+
+    av_pooled_snapshot_out = (
+        cfg.OUT_DIR / "tables" / f"stance_history_affective_validation_aggregated_snapshot{SUFFIX}.csv"
+    )
+    av_pooled_snapshot_df.round(2).to_csv(av_pooled_snapshot_out, index=False)
+    print(f"\nSaved → {av_pooled_snapshot_out}")
+
+# %% [markdown]
 # ## Correlation: is a "False" (still-against) stance associated with
 # higher correction/rebuttal quality?
 #

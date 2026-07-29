@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Misinformation Response Coding</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- Identity gate -->
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <div class="gate-mark">◆</div>
+      <h1>Misinformation<br />Response Coding</h1>
+      <p class="gate-sub">A structured + interpretive coding instrument for
+        model responses to user-held misinformation.</p>
+      <label class="gate-label" for="gate-input">Annotator identifier</label>
+      <input id="gate-input" class="gate-input" placeholder="e.g. your-initials"
+             autocomplete="off" spellcheck="false" />
+      <button id="gate-go" class="btn btn-primary gate-go">Begin coding →</button>
+      <p class="gate-note">Your identifier tags every rating you save and lets
+        you resume where you left off.</p>
+    </div>
+  </div>
+
+  <!-- App shell -->
+  <div id="app" class="app hidden">
+
+    <!-- LEFT: batch rail -->
+    <aside class="rail" id="rail">
+      <header class="rail-head">
+        <div class="brand"><span class="brand-mark">◆</span>
+          <span class="brand-name">Response Coding</span></div>
+        <button class="icon-btn" id="theme-toggle" title="Toggle theme">☾</button>
+      </header>
+      <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Annotation mode">
+        <button class="mode-btn active" data-mode="conversation">Conversations</button>
+        <button class="mode-btn" data-mode="response">Responses</button>
+        <span class="mode-glider" id="mode-glider"></span>
+      </div>
+      <div class="rail-meta">
+        <div class="who">
+          <span class="who-label">Annotator</span>
+          <span class="who-id" id="who-id">—</span>
+        </div>
+        <div class="batch-progress">
+          <div class="bp-bar"><span id="bp-fill"></span></div>
+          <span class="bp-text" id="bp-text">0 / 0 complete</span>
+        </div>
+      </div>
+      <nav class="rail-list" id="rail-list"></nav>
+      <footer class="rail-foot" id="rail-foot"></footer>
+    </aside>
+
+    <!-- CENTER: transcript -->
+    <main class="stage" id="stage">
+      <div class="empty" id="stage-empty">
+        <div class="empty-mark">❝</div>
+        <p>Select a conversation from the left to begin.</p>
+      </div>
+      <div class="reader hidden" id="reader">
+        <div class="reader-head" id="reader-head"></div>
+        <div class="thread" id="thread"></div>
+      </div>
+    </main>
+
+    <!-- RIGHT: coding + summary -->
+    <aside class="panel" id="panel">
+      <div class="panel-tabs">
+        <button class="ptab active" data-tab="codes">Codes</button>
+        <button class="ptab" data-tab="summary" id="tab-summary">Summary</button>
+      </div>
+      <div class="panel-body" id="panel-codes">
+        <div class="codes-intro">
+          <p>Select any text in the transcript to attach an interpretive code.</p>
+        </div>
+        <div id="codes-list" class="codes-list"></div>
+      </div>
+      <div class="panel-body hidden" id="panel-summary"></div>
+      <footer class="panel-foot">
+        <span class="save-status" id="save-status">—</span>
+        <button class="btn btn-primary" id="submit-btn">Submit conversation</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Selection popover for adding a code -->
+  <div id="code-pop" class="pop hidden">
+    <div class="pop-quote" id="pop-quote"></div>
+    <label class="pop-label">Code</label>
+    <input id="pop-code" class="pop-input" list="codebook" placeholder="theme / code…"
+           autocomplete="off" />
+    <datalist id="codebook"></datalist>
+    <label class="pop-label">Note <span class="opt">(optional)</span></label>
+    <textarea id="pop-note" class="pop-input pop-area" rows="2"
+              placeholder="interpretation, rationale…"></textarea>
+    <div class="pop-actions">
+      <button class="btn btn-ghost" id="pop-cancel">Cancel</button>
+      <button class="btn btn-primary" id="pop-save">Add code</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

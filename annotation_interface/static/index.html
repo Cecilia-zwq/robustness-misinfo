@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Misinformation Response Coding</title>
+  <title>Misinformation Response Review</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -12,13 +12,15 @@
   <div id="gate" class="gate">
     <div class="gate-card">
       <div class="gate-mark">◆</div>
-      <h1>Misinformation<br />Response Coding</h1>
-      <p class="gate-sub">A structured + interpretive coding instrument for
-        model responses to user-held misinformation.</p>
+      <h1>Misinformation<br />Response Review</h1>
+      <p class="gate-sub">Two jobs, one set of conversations between an AI
+        assistant and someone who believes something false: score the replies
+        against a rubric, or read a conversation and code what the model does.
+        Pick which one in the upper left.</p>
       <label class="gate-label" for="gate-input">Annotator identifier</label>
       <input id="gate-input" class="gate-input" placeholder="e.g. your-initials"
              autocomplete="off" spellcheck="false" />
-      <button id="gate-go" class="btn btn-primary gate-go">Begin coding →</button>
+      <button id="gate-go" class="btn btn-primary gate-go">Start →</button>
       <p class="gate-note">Your identifier tags every rating you save and lets
         you resume where you left off.</p>
     </div>
@@ -31,14 +33,21 @@
     <aside class="rail" id="rail">
       <header class="rail-head">
         <div class="brand"><span class="brand-mark">◆</span>
-          <span class="brand-name">Response Coding</span></div>
+          <span class="brand-name">Response Review</span></div>
         <button class="icon-btn" id="theme-toggle" title="Toggle theme">☾</button>
       </header>
-      <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Annotation mode">
-        <button class="mode-btn active" data-mode="conversation">Conversations</button>
-        <button class="mode-btn" data-mode="response">Responses</button>
-        <span class="mode-glider" id="mode-glider"></span>
+      <!-- Two different jobs, kept apart: score every response against the
+           rubric, or read a whole conversation and code what you notice. -->
+      <div class="mode-switch" id="task-switch" role="tablist" aria-label="Annotation task">
+        <button class="mode-btn active" data-task="rating">Rating</button>
+        <button class="mode-btn" data-task="qualitative">Qualitative</button>
+        <span class="mode-glider"></span>
       </div>
+      <div class="sub-switch" id="context-switch" role="group" aria-label="What you see while rating">
+        <button class="sub-btn active" data-context="conversation">In conversation</button>
+        <button class="sub-btn" data-context="response">Isolated</button>
+      </div>
+      <p class="task-hint" id="task-hint"></p>
       <div class="rail-meta">
         <div class="who">
           <span class="who-label">Annotator</span>
@@ -65,16 +74,16 @@
       </div>
     </main>
 
-    <!-- RIGHT: coding + summary -->
+    <!-- RIGHT: task-dependent — rating progress, or codes + synthesis -->
     <aside class="panel" id="panel">
-      <div class="panel-tabs">
-        <button class="ptab active" data-tab="codes">Codes</button>
-        <button class="ptab" data-tab="summary" id="tab-summary">Summary</button>
+      <div class="panel-tabs" id="panel-tabs">
+        <button class="ptab active" data-tab="progress" id="tab-progress">Progress</button>
+        <button class="ptab" data-tab="codes" id="tab-codes">Labels</button>
+        <button class="ptab" data-tab="summary" id="tab-summary">Synthesis</button>
       </div>
-      <div class="panel-body" id="panel-codes">
-        <div class="codes-intro">
-          <p>Select any text in the transcript to attach an interpretive code.</p>
-        </div>
+      <div class="panel-body hidden" id="panel-progress"></div>
+      <div class="panel-body hidden" id="panel-codes">
+        <div class="codes-intro" id="codes-intro"></div>
         <div id="codes-list" class="codes-list"></div>
       </div>
       <div class="panel-body hidden" id="panel-summary"></div>
@@ -85,19 +94,21 @@
     </aside>
   </div>
 
-  <!-- Selection popover for adding a code -->
+  <!-- Selection popover for adding a label -->
   <div id="code-pop" class="pop hidden">
     <div class="pop-quote" id="pop-quote"></div>
-    <label class="pop-label">Code</label>
-    <input id="pop-code" class="pop-input" list="codebook" placeholder="theme / code…"
+    <div class="pop-types" id="pop-types"></div>
+    <div class="pop-type-help" id="pop-type-help"></div>
+    <label class="pop-label">Label</label>
+    <input id="pop-code" class="pop-input" list="codebook" placeholder="short phrase…"
            autocomplete="off" />
     <datalist id="codebook"></datalist>
     <label class="pop-label">Note <span class="opt">(optional)</span></label>
     <textarea id="pop-note" class="pop-input pop-area" rows="2"
-              placeholder="interpretation, rationale…"></textarea>
+              placeholder="why you picked it…"></textarea>
     <div class="pop-actions">
       <button class="btn btn-ghost" id="pop-cancel">Cancel</button>
-      <button class="btn btn-primary" id="pop-save">Add code</button>
+      <button class="btn btn-primary" id="pop-save">Add label</button>
     </div>
   </div>
 

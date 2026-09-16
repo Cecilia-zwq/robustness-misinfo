@@ -9,13 +9,17 @@ CREATE TABLE IF NOT EXISTS annotators (
     created_at     DATETIME     DEFAULT CURRENT_TIMESTAMP
 );
 
--- One row per annotated unit. A unit is a whole conversation OR a single
--- isolated response pair, distinguished by `unit_type`. `unit_id` is the
--- session_id (conversation) or item_id (response). `payload` stores the full
--- JSON record for lossless round-tripping.
+-- One row per annotated unit, where a unit is one (task, transcript) pair:
+--   conversation → rubric ratings for every response in a session
+--   response     → rubric rating for one isolated pair
+--   qualitative  → the coding pass over a whole session
+-- `unit_id` is the session_id (conversation, qualitative) or item_id
+-- (response). Rating and qualitative records over the same session are separate
+-- rows and may belong to different annotators. `payload` stores the full JSON
+-- record for lossless round-tripping.
 CREATE TABLE IF NOT EXISTS annotations (
     annotation_id  BIGINT       AUTO_INCREMENT PRIMARY KEY,
-    unit_type      ENUM('conversation','response') NOT NULL,
+    unit_type      ENUM('conversation','response','qualitative') NOT NULL,
     unit_id        VARCHAR(200) NOT NULL,
     annotator_id   VARCHAR(64)  NOT NULL,
     status         ENUM('in_progress','submitted') NOT NULL DEFAULT 'in_progress',
@@ -66,11 +70,13 @@ CREATE TABLE IF NOT EXISTS response_ratings (
     UNIQUE KEY uq_turn (session_id, annotator_id, turn)
 );
 
--- Free-form qualitative codes anchored to character spans of the transcript.
--- Applies to both modes; `unit_id` is the session_id or item_id.
+-- Qualitative codes anchored to character spans of the transcript. Produced by
+-- the qualitative pass only, so `unit_id` is always a session_id. `code_type`
+-- separates descriptive coding (what the model observably does) from
+-- interpretive coding (what the analyst reads into it).
 CREATE TABLE IF NOT EXISTS highlights (
     id            BIGINT AUTO_INCREMENT PRIMARY KEY,
-    unit_type     ENUM('conversation','response') NOT NULL,
+    unit_type     ENUM('qualitative') NOT NULL DEFAULT 'qualitative',
     unit_id       VARCHAR(200) NOT NULL,
     annotator_id  VARCHAR(64)  NOT NULL,
     turn          INT          NOT NULL,
@@ -79,13 +85,15 @@ CREATE TABLE IF NOT EXISTS highlights (
     end_offset    INT          NOT NULL,
     quote         TEXT         NOT NULL,
     code          VARCHAR(128) NULL,
+    code_type     ENUM('descriptive','interpretive') NOT NULL DEFAULT 'descriptive',
     note          TEXT         NULL,
     color         VARCHAR(16)  NULL,
     created_at    DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_code (code),
-    KEY idx_unit (unit_type, unit_id, annotator_id)
+    KEY idx_code (code_type, code),
+    KEY idx_unit (unit_id, annotator_id)
 );
 
+-- The synthesis half of the qualitative pass: one row per coded session.
 CREATE TABLE IF NOT EXISTS conversation_summaries (
     session_id    VARCHAR(200) NOT NULL,
     annotator_id  VARCHAR(64)  NOT NULL,

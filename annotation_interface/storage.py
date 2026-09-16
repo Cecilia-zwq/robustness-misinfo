@@ -1,14 +1,26 @@
 """Storage abstraction for annotation records.
 
-The interface saves one record per (annotator, unit_type, unit_id). A *unit* is
-either a whole ``conversation`` or a single isolated ``response`` pair — the two
-annotation modes share this storage layer. Today records are JSON files under
-``annotations/``; when the university MariaDB is available, implement
-``MariaDBStorage`` against the schema in ``schema.sql`` and set the env var
-``ANNO_STORAGE=mariadb``. The rest of the app talks only to the ``Storage``
-interface, so nothing else changes.
+The interface saves one record per (annotator, unit_type, unit_id). There are
+two *tasks* — rubric rating and qualitative coding — and three unit types:
 
-Conversation record (unit_type="conversation", unit_id=session_id)::
+===============  ==========  ==================================================
+unit_type        task        what the annotator sees
+===============  ==========  ==================================================
+``conversation`` rating      the whole session; one rating per model response
+``response``     rating      one isolated (user message, response) pair
+``qualitative``  coding      the whole session; codes on spans + a synthesis
+===============  ==========  ==================================================
+
+Rating and coding are deliberately *separate records* over the same transcript:
+they are different cognitive tasks, can be done by different people, and one
+being finished says nothing about the other.
+
+Today records are JSON files under ``annotations/``; when the university
+MariaDB is available, implement ``MariaDBStorage`` against the schema in
+``schema.sql`` and set the env var ``ANNO_STORAGE=mariadb``. The rest of the app
+talks only to the ``Storage`` interface, so nothing else changes.
+
+Conversation rating record (unit_type="conversation", unit_id=session_id)::
 
     {
       "schema_version": "1.0", "unit_type": "conversation",
@@ -18,22 +30,31 @@ Conversation record (unit_type="conversation", unit_id=session_id)::
       "responses": {"1": {"correction": 3, "rebuttal": 2,
                           "affective_validation": "support",
                           "epistemic_endorsement": "disagree",
-                          "stance": "false", "comment": "..."}, ...},
-      "highlights": [{"id": "h1", "turn": 1, "target": "response",
-                      "start": 40, "end": 88, "quote": "...",
-                      "code": "hedging", "note": "...", "color": "--c1"}],
-      "conversation": {"trajectory": "drifts", "comment": "...", "themes": [...]}
+                          "stance": "false", "comment": "..."}, ...}
     }
 
-Response record (unit_type="response", unit_id=item_id)::
+Isolated rating record (unit_type="response", unit_id=item_id)::
 
     {
       "schema_version": "1.0", "unit_type": "response", "unit_id": "resp-0007",
       "item_id": "resp-0007", "annotator_id": "alice", "status": "...",
       "created_at": "...", "updated_at": "...",
       "rating": {"correction": 2, "rebuttal": 1, "affective_validation": "...",
-                 "epistemic_endorsement": "...", "stance": "...", "comment": "..."},
-      "highlights": [{"id": "h1", "turn": 1, "target": "response", ...}]
+                 "epistemic_endorsement": "...", "stance": "...", "comment": "..."}
+    }
+
+Qualitative record (unit_type="qualitative", unit_id=session_id)::
+
+    {
+      "schema_version": "1.0", "unit_type": "qualitative",
+      "unit_id": "cell-...__model-...", "session_id": "cell-...__model-...",
+      "annotator_id": "bob", "status": "...",
+      "created_at": "...", "updated_at": "...",
+      "highlights": [{"id": "h1", "turn": 1, "target": "response",
+                      "start": 40, "end": 88, "quote": "...",
+                      "code": "hedging", "code_type": "descriptive",
+                      "note": "...", "color": "--c1"}],
+      "conversation": {"trajectory": "drifts", "comment": "...", "themes": [...]}
     }
 """
 import json
@@ -55,11 +76,43 @@ def _slug(value: str) -> str:
     return _SAFE.sub("_", value)[:200]
 
 
-def _n_rated(record):
-    """How many response-ratings a record holds (for progress meters)."""
-    if record.get("unit_type") == "response":
-        return 1 if record.get("rating") else 0
-    return len(record.get("responses", {}))
+_DIMS = None
+
+
+def _required_dims():
+    """Rubric dimension ids that must all be marked for a rating to count."""
+    global _DIMS
+    if _DIMS is None:
+        with open(config.RUBRIC_PATH) as f:
+            rubric = json.load(f)
+        _DIMS = tuple(d["id"] for d in rubric.get("response_dimensions", []))
+    return _DIMS
+
+
+def _is_complete(rating):
+    dims = _required_dims()
+    return bool(dims) and all(
+        (rating or {}).get(d) not in (None, "") for d in dims
+    )
+
+
+def _rated_turns(record):
+    """Turn numbers whose rating is *complete* — every rubric dimension marked.
+
+    Partially rated turns deliberately don't count: the rail meter only lights
+    up for a response the annotator actually finished. The free-text comment is
+    optional and never affects this.
+    """
+    unit_type = record.get("unit_type")
+    if unit_type == "qualitative":
+        return []          # the qualitative pass carries no ratings at all
+    if unit_type == "response":
+        return [1] if _is_complete(record.get("rating")) else []
+    return sorted(
+        int(turn)
+        for turn, rating in (record.get("responses") or {}).items()
+        if _is_complete(rating)
+    )
 
 
 class Storage:
@@ -73,7 +126,10 @@ class Storage:
         raise NotImplementedError
 
     def status_map(self, annotator_id, unit_type, unit_ids):
-        """Return {unit_id: {"status": ..., "n_responses": int}} for a batch."""
+        """Return {unit_id: {"status": ..., "n_responses": int,
+        "rated_turns": [int], "n_codes": int}} for a batch. Rating units report
+        progress through ``rated_turns``; qualitative units through
+        ``n_codes`` — see ``_rated_turns``."""
         raise NotImplementedError
 
 
@@ -120,10 +176,13 @@ class LocalJSONStorage(Storage):
         for uid in unit_ids:
             rec = self.load(annotator_id, unit_type, uid)
             if rec is None:
-                out[uid] = {"status": "not_started", "n_responses": 0}
+                out[uid] = {"status": "not_started", "n_responses": 0,
+                            "rated_turns": [], "n_codes": 0}
             else:
+                rated = _rated_turns(rec)
                 out[uid] = {"status": rec.get("status", "in_progress"),
-                            "n_responses": _n_rated(rec)}
+                            "n_responses": len(rated), "rated_turns": rated,
+                            "n_codes": len(rec.get("highlights") or [])}
         return out
 
 

@@ -50,6 +50,8 @@ def main():
                 # shown to annotators:
                 "category": belief.get("category"),
                 "belief": belief.get("content"),
+                "is_long_text": bool(belief.get("is_long_text")),
+                "long_text": belief.get("long_text", "") or "",
                 "user_message": t.get("user_message", ""),
                 "target_response": t.get("target_response", ""),
             })

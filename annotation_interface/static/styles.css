@@ -29,9 +29,19 @@
   --sans:  Arial, Helvetica, sans-serif;
   --mono:  Arial, Helvetica, sans-serif;
 
-  /* qualitative code palette — muted, distinguishable */
+  /* legacy swatch palette — kept so highlights saved before the marker inks
+     existed still render with their original colour */
   --c0:#c0863b; --c1:#3f7f8c; --c2:#8a5a9b; --c3:#5f8a4a;
   --c4:#b8555f; --c5:#4a6cb0; --c6:#a9793f; --c7:#5a8f7d;
+
+  /* Highlighter inks. Hue family carries the coding pass — warm for
+     descriptive, cool for interpretive — so which kind of code a stroke is
+     shows at a glance; the shade within a family varies by label. */
+  --m-d0:#ffe066; --m-d1:#ffc14d; --m-d2:#ffa87a; --m-d3:#d9ee63;
+  --m-i0:#c3aaff; --m-i1:#8fd0ff; --m-i2:#79e3d2; --m-i3:#f2a2dd;
+  --hl-alpha: 60%; --hl-alpha-hover: 78%; --hl-alpha-pending: 82%;
+  /* live drag colour — a plain highlighter, before a label is chosen */
+  --marker: #ffdf7e; --marker-ink: #2a2417;
 }
 
 :root[data-theme="dark"] {
@@ -52,6 +62,11 @@
   --claim-tint:   #2c2114;
   --shadow:       0 1px 2px rgba(0,0,0,.4), 0 12px 30px -14px rgba(0,0,0,.7);
   --shadow-soft:  0 1px 0 rgba(0,0,0,.3);
+  --marker:       #8a6f22;
+  --marker-ink:   #f7f1e2;
+  /* Bright inks over a dark page need far less alpha to read, and must stay
+     dark enough for the light body text to sit on top of them. */
+  --hl-alpha: 34%; --hl-alpha-hover: 48%; --hl-alpha-pending: 52%;
 }
 
 * { box-sizing: border-box; }
@@ -160,7 +175,24 @@ body {
   box-shadow: var(--shadow-soft); border: 1px solid var(--rule-strong);
   transition: transform .24s cubic-bezier(.4,1.2,.4,1);
 }
-.mode-switch[data-mode="response"] .mode-glider { transform: translateX(100%); }
+.mode-switch[data-pos="1"] .mode-glider { transform: translateX(100%); }
+/* secondary toggle: what the rater sees. Subordinate to the task switch above,
+   so it reads as a setting rather than a second top-level choice. */
+.sub-switch { display: flex; gap: 6px; margin: 8px 14px 0; }
+.sub-btn {
+  flex: 1; font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+  color: var(--muted); background: transparent; border: 1px solid var(--rule);
+  border-radius: 7px; padding: 6px 4px; cursor: pointer;
+  transition: color .14s, border-color .14s, background .14s;
+}
+.sub-btn:hover { color: var(--ink); }
+.sub-btn.active {
+  color: var(--primary-ink); border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: var(--primary-tint);
+}
+.task-hint {
+  margin: 9px 16px 0; font-size: 11.5px; line-height: 1.45; color: var(--faint);
+}
 
 .rail-meta { padding: 16px 18px; border-bottom: 1px solid var(--rule); border-top: 1px solid var(--rule); margin-top: 12px; }
 .who { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
@@ -211,9 +243,20 @@ body {
 
 .reader-head { margin-bottom: 26px; }
 .rh-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+/* "Category · <label>" so the chip reads as a classification of the claim,
+   not an unexplained tag. Hovering explains what the category means. */
+.rh-cat-pair {
+  display: inline-flex; align-items: stretch; border-radius: 6px; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, transparent); cursor: help;
+}
+.rh-cat-key {
+  font-size: 12px; font-weight: 600; letter-spacing: .01em; padding: 4px 9px;
+  background: color-mix(in srgb, var(--primary-tint) 55%, transparent); color: var(--muted);
+  border-right: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+}
 .rh-cat {
   font-size: 12.5px; font-weight: 600; text-transform: capitalize; letter-spacing: .01em;
-  padding: 4px 11px; border-radius: 6px; background: var(--primary-tint); color: var(--primary-ink);
+  padding: 4px 11px; background: var(--primary-tint); color: var(--primary-ink);
 }
 .rh-id { font-size: 12px; color: var(--muted); }
 .rh-meta { font-size: 12px; color: var(--claim); }
@@ -227,6 +270,30 @@ body {
   color: var(--claim); margin-bottom: 7px;
 }
 .claim-text { font-size: 18px; line-height: 1.4; color: var(--ink); font-weight: 600; }
+.claim-sub { margin-top: 9px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.rh-blind {
+  font-size: 11.5px; letter-spacing: .01em; color: var(--muted); cursor: help;
+  padding: 3px 9px; border-radius: 20px; border: 1px dashed var(--rule-strong);
+}
+.rh-blind::before { content: "◐"; margin-right: 5px; color: var(--faint); }
+/* long-text beliefs: headline stays visible, full article opens on demand */
+.claim-full { margin-top: 11px; }
+.claim-full > summary {
+  cursor: pointer; font-size: 12px; font-weight: 600; color: var(--claim);
+  list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--claim) 30%, transparent);
+}
+.claim-full > summary::-webkit-details-marker { display: none; }
+.claim-full > summary::before { content: "▸"; font-size: 10px; }
+.claim-full[open] > summary::before { content: "▾"; }
+.claim-full > summary:hover { background: color-mix(in srgb, var(--claim) 10%, transparent); }
+.claim-body {
+  margin-top: 10px; max-height: 320px; overflow-y: auto;
+  font-size: 13.5px; line-height: 1.6; color: var(--ink-soft); white-space: pre-wrap;
+  padding: 12px 14px; border-radius: 8px; background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--claim) 18%, transparent);
+}
 .iso-note {
   display: inline-flex; align-items: center; gap: 7px; margin-top: 12px;
   font-size: 12px; color: var(--muted); font-style: normal;
@@ -240,6 +307,18 @@ body {
 /* ---- thread: social-media style chat ------------------------------------- */
 .thread { display: flex; flex-direction: column; gap: 26px; }
 .turn { animation: rise .45s cubic-bezier(.2,.7,.2,1) backwards; }
+/* Without a rating panel between them, turns need their own breathing room. */
+.turn.qual + .turn.qual { margin-top: 26px; }
+/* A highlighter pen, so the gesture reads as marking up a page rather than
+   selecting text. Hotspot sits at the nib. */
+.turn.qual .mark-text {
+  cursor: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%3E%3Cpath%20d='M2.5%2017.5L6.5%2021.5L9.2%2018.8L5.2%2014.8Z'%20fill='%23e0a92e'%20stroke='%236b4f14'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3Cpath%20d='M5.2%2014.8L14.8%205.2L18.8%209.2L9.2%2018.8Z'%20fill='%23f7d768'%20stroke='%236b4f14'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3Cpath%20d='M14.8%205.2L17.2%202.8L21.2%206.8L18.8%209.2Z'%20fill='%23d8d2c4'%20stroke='%236b4f14'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3C/svg%3E") 3 21, text;
+}
+/* The drag itself looks like a marker stroke, not an OS selection. */
+.turn.qual .mark-text::selection,
+.turn.qual .mark-text *::selection {
+  background: var(--marker); color: var(--marker-ink);
+}
 
 .chat-row { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 14px; }
 .chat-row.user { flex-direction: row-reverse; }
@@ -283,14 +362,37 @@ body {
 }
 .bubble.user .mark-text { color: var(--ink-soft); }
 
-/* highlighted spans */
+/* Highlighted spans, drawn as marker strokes: the ink stops just short of the
+   line box top and bottom, and `box-decoration-break: clone` gives each wrapped
+   line its own stroke rather than one continuous block. */
 mark.hl {
-  background: color-mix(in srgb, var(--hl, var(--c0)) 26%, transparent);
-  border-bottom: 2px solid var(--hl, var(--c0));
-  border-radius: 3px 3px 0 0; padding: 0 1px; cursor: pointer; color: inherit;
+  background: linear-gradient(to bottom,
+      transparent 4%,
+      color-mix(in srgb, var(--hl, var(--m-d0)) var(--hl-alpha), transparent) 4%,
+      color-mix(in srgb, var(--hl, var(--m-d0)) var(--hl-alpha), transparent) 93%,
+      transparent 93%);
+  border-radius: 4px; padding: 1px 3px; margin: 0 -2px;
+  cursor: pointer; color: inherit;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
   transition: background .12s;
 }
-mark.hl:hover { background: color-mix(in srgb, var(--hl, var(--c0)) 42%, transparent); }
+mark.hl:hover {
+  background: linear-gradient(to bottom,
+      transparent 4%,
+      color-mix(in srgb, var(--hl, var(--m-d0)) var(--hl-alpha-hover), transparent) 4%,
+      color-mix(in srgb, var(--hl, var(--m-d0)) var(--hl-alpha-hover), transparent) 93%,
+      transparent 93%);
+}
+/* The stroke you are still naming: fully saturated, and breathing so it reads
+   as unfinished until the label is saved. */
+mark.hl.pending {
+  background: color-mix(in srgb, var(--hl, var(--marker)) var(--hl-alpha-pending), transparent);
+  outline: 1.5px dashed color-mix(in srgb, var(--hl, var(--marker)) 85%, transparent);
+  outline-offset: 1px; cursor: default;
+  animation: markerPulse 1.5s ease-in-out infinite;
+}
+@keyframes markerPulse { 50% { outline-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { mark.hl.pending { animation: none; } }
 .mark-text strong { font-weight: 600; }
 
 /* ---- rating panel -------------------------------------------------------- */
@@ -309,9 +411,37 @@ mark.hl:hover { background: color-mix(in srgb, var(--hl, var(--c0)) 42%, transpa
 .rate-body { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 16px; }
 .rate.collapsed .rate-body { display: none; }
 
-.dim { }
-.dim-q { font-size: 13px; font-weight: 500; color: var(--ink); margin-bottom: 3px; line-height: 1.4; }
-.dim-help { font-size: 11.5px; color: var(--muted); line-height: 1.4; min-height: 15px; margin-bottom: 9px; }
+.dim { padding-top: 14px; border-top: 1px solid var(--rule); }
+.dim:first-child { padding-top: 0; border-top: none; }
+.dim-name {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--primary-ink); margin-bottom: 5px;
+}
+.dim-q { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 4px; line-height: 1.4; }
+.dim-focus { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-bottom: 10px; }
+.dim-help { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-bottom: 9px; }
+
+/* always-on definition key: one row per option, click-to-select like the buttons */
+.dim-key { margin-top: 9px; display: flex; flex-direction: column; gap: 1px; }
+.key-row {
+  display: flex; gap: 9px; align-items: baseline; cursor: pointer;
+  padding: 5px 8px; border-radius: 6px; border-left: 2px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.key-row:hover { background: var(--surface); }
+.key-row.on { background: var(--primary-tint); border-left-color: var(--primary); }
+.key-tag {
+  flex: none; font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--faint);
+}
+.dim-key.scale  .key-tag { min-width: 14px; text-align: center; }
+/* categorical options: fixed gutter so every definition starts on one line */
+.dim-key.choice .key-tag { width: 98px; text-align: left; }
+.key-row.on .key-tag { color: var(--primary-ink); }
+.key-help { font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.key-help b { color: var(--ink-soft); font-weight: 600; }
+.key-row.on .key-help { color: var(--ink-soft); }
+
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg button {
   font-family: var(--sans); font-size: 12.5px; font-weight: 500; color: var(--ink-soft);
@@ -346,8 +476,46 @@ mark.hl:hover { background: color-mix(in srgb, var(--hl, var(--c0)) 42%, transpa
 .ptab:hover { color: var(--ink); }
 .ptab.active { color: var(--ink); border-bottom-color: var(--primary); }
 .panel-body { flex: 1; overflow-y: auto; padding: 16px; }
-.codes-intro p { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 14px; }
+.codes-intro p { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 10px; }
+.codes-intro .ci-type {
+  padding: 8px 10px; border-radius: 8px; background: var(--surface-2);
+  border-left: 2px solid var(--rule-strong); font-size: 11.5px; margin-bottom: 6px;
+}
+.codes-intro .ci-type b { color: var(--ink); }
+.codes-intro + .codes-list { margin-top: 8px; }
 
+/* ---- rating progress panel ---- */
+.prog-head { margin-bottom: 14px; }
+.prog-count { font-size: 13px; color: var(--ink-soft); }
+.prog-count b { font-size: 17px; color: var(--ink); }
+.prog-sub { font-size: 11.5px; color: var(--faint); line-height: 1.45; margin-top: 5px; }
+.prog-list { display: flex; flex-direction: column; gap: 5px; }
+.prog-row {
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center;
+  width: 100%; text-align: left; cursor: pointer; padding: 9px 11px;
+  border: 1px solid var(--rule); border-radius: 9px; background: var(--surface-2);
+  font-family: var(--sans); transition: background .13s, border-color .13s;
+}
+.prog-row:hover { background: var(--paper); border-color: var(--rule-strong); }
+.prog-tick {
+  width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--rule-strong);
+  font-size: 10px; line-height: 13px; text-align: center; color: transparent;
+}
+.prog-row.done .prog-tick { background: var(--primary); border-color: var(--primary); color: var(--paper); }
+.prog-label { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.prog-state { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.prog-row.done .prog-state { color: var(--primary); }
+.prog-missing {
+  grid-column: 2 / -1; font-size: 11px; color: var(--faint); line-height: 1.4; margin-top: 2px;
+}
+
+.code-section { margin-bottom: 20px; }
+.code-section-head {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700;
+  color: var(--ink); padding-bottom: 7px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.cs-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .code-group { margin-bottom: 16px; }
 .code-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
 .code-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
@@ -404,9 +572,13 @@ mark.hl:hover { background: color-mix(in srgb, var(--hl, var(--c0)) 42%, transpa
   border: 1px solid var(--rule-strong); border-radius: 12px; box-shadow: var(--shadow);
   padding: 14px; animation: pop .16s ease;
 }
+/* Echoes the stroke now sitting on the page, so the popover reads as belonging
+   to that highlight rather than floating free of it. */
 .pop-quote {
-  font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-soft);
-  line-height: 1.4; padding: 8px 10px; background: var(--paper-2); border-radius: 8px;
+  font-family: var(--serif); font-size: 13px; color: var(--ink);
+  line-height: 1.5; padding: 8px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--marker) 34%, transparent);
+  border-left: 3px solid var(--marker);
   margin-bottom: 12px; max-height: 66px; overflow: auto;
 }
 .pop-input {
@@ -414,6 +586,24 @@ mark.hl:hover { background: color-mix(in srgb, var(--hl, var(--c0)) 42%, transpa
   border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink);
   outline: none;
 }
+.pop-types { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.pop-types button {
+  font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--muted);
+  background: var(--paper-2); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 7px 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.pop-types button:hover { color: var(--ink); }
+.pop-types button.sel {
+  color: var(--primary-ink); background: var(--primary-tint);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.pt-sub { font-size: 10.5px; font-weight: 400; color: var(--faint); }
+.pop-types button.sel .pt-sub { color: var(--primary-ink); opacity: .8; }
+.pop-type-help {
+  font-size: 11px; line-height: 1.45; color: var(--faint); margin-bottom: 11px;
+}
+.pop-eg { font-style: italic; }
 .pop-code { font-family: var(--mono); }
 .pop-area { resize: vertical; }
 .pop-label { margin-bottom: 6px; }

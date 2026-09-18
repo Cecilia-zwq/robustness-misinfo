@@ -17,7 +17,7 @@ therefore built by **banding on word count**:
 
 1. Rank all N items by total words (belief + user message + response).
 2. Cut the ranking into ``BLOCK_SIZE`` equal bands — with 600 items in
-   blocks of 10, that is 10 bands of 60.
+   blocks of 15, that is 15 bands of 40.
 3. Give every block exactly one item from every band.
 
 Each rater's block then spans the whole length distribution — one of the
@@ -27,10 +27,13 @@ a block of uniformly punishing text. Mixing long and short is the point:
 it is what keeps fatigue comparable rather than merely making the
 averages match.
 
-Within a band, which of the 60 items goes to which of the 60 blocks is
+Within a band, which of the 40 items goes to which of the 40 blocks is
 chosen greedily to spread ``BLOCK_BALANCE_KEYS`` (condition, model, turn,
 category), so length balance is achieved *and* no rater's items are
-concentrated in one experimental cell.
+concentrated in one experimental cell. A swap-repair pass then pulls each
+block toward the item set's proportions, prioritising belief category
+(see ``_refine_blocks``). At the defaults every block's category mix is
+4 bias / 2 climate / 3 conspiracy / 2 fake_health / 4 fake_news.
 
 Assignment — rotation
 ---------------------
@@ -40,14 +43,25 @@ so that each block is seen by exactly R distinct raters and each rater
 holds exactly q distinct blocks. Requires ``q`` to divide ``B``; the
 resulting rater count is ``R * B / q``.
 
-At the defaults (600 items, blocks of 10, 2 blocks per rater, 3 raters
-per item): 60 blocks, 90 raters, 20 items each.
+At the defaults (600 items, blocks of 15, 1 block per rater, 3 raters
+per item): 40 blocks, 120 raters, 15 items each, ~42 minutes.
 
 Sessions
 --------
 Each rater's q blocks map one-to-one onto q sessions with a break between
-them, so the break always falls on a block boundary and the two halves
-are length-matched by construction.
+them, so the break always falls on a block boundary and the halves are
+length-matched by construction. At the default q=1 there is one session
+and no break.
+
+Pilot
+-----
+``--pilot-raters P`` nominates one block as the pilot block and writes a
+separate assignment giving it to P pilot raters. The pilot block is the one
+whose word total sits closest to the median block, so the pilot's timing
+is representative of what main-study raters will face. Pilot raters are
+numbered P001.. so their data cannot be confused with the main study's
+R001.., and the pilot block still receives its full complement of main
+raters — pilot ratings are an addition, never a substitute.
 
 Usage
 -----
@@ -61,6 +75,10 @@ Usage
     # Shorter sessions: blocks of 6, 2 per rater -> 12 items, 150 raters
     python -m human_evaluation.make_rater_blocks \
         --run-dir <run-dir> --block-size 6
+
+    # Also nominate a pilot block for 5 pilot raters
+    python -m human_evaluation.make_rater_blocks \
+        --run-dir <run-dir> --pilot-raters 5
 
     # Inspect the plan without writing per-block CSVs
     python -m human_evaluation.make_rater_blocks \
@@ -205,7 +223,70 @@ def build_blocks(
                 tallies[best_b][(k, it[k])] += 1
             open_blocks.discard(best_b)
 
+    _refine_blocks(blocks, balance_keys=balance_keys,
+                   priority_key=cfg.BLOCK_PRIORITY_KEY, seed=seed)
     return blocks
+
+
+def _refine_blocks(
+    blocks: list[list[dict]],
+    *,
+    balance_keys: tuple[str, ...],
+    priority_key: str,
+    seed: int,
+    patience: int = 20_000,
+) -> None:
+    """Hill-climb the greedy blocks toward proportional composition, in place.
+
+    The one-pass greedy above cannot see ahead, and it struggles most with
+    belief category because category is entangled with length (fake_health
+    and fake_news are the long-text articles), so the length bands are
+    themselves category-skewed. This pass repairs that.
+
+    Moves are swaps of two blocks' items *from the same length band* —
+    ``blocks[b][i]`` is band ``i``'s item, since construction appends one
+    item per band in band order — so every block still holds exactly one
+    item per band and the banding guarantee is untouched.
+
+    A block's cost is its squared deviation, per balance key, from the
+    counts it would have if it mirrored the whole item set's proportions,
+    with ``priority_key`` weighted 10x; plus a word-total term (one unit
+    per 100 words off the mean) so the repair cannot trade away length
+    balance. A swap is kept only if it lowers the two blocks' summed cost;
+    the search stops after ``patience`` consecutive rejected proposals.
+    """
+    size = len(blocks[0])
+    all_items = [it for b in blocks for it in b]
+    expect = {
+        k: {v: size * c / len(all_items)
+            for v, c in Counter(it[k] for it in all_items).items()}
+        for k in balance_keys
+    }
+    weight = {k: 10.0 if k == priority_key else 1.0 for k in balance_keys}
+    mean_words = sum(it["n_words"] for it in all_items) / len(blocks)
+
+    def cost(block: list[dict]) -> float:
+        c = ((sum(it["n_words"] for it in block) - mean_words) / 100) ** 2
+        for k in balance_keys:
+            got = Counter(it[k] for it in block)
+            c += weight[k] * sum((got.get(v, 0) - e) ** 2
+                                 for v, e in expect[k].items())
+        return c
+
+    rng = random.Random(seed + 2)
+    costs = [cost(b) for b in blocks]
+    stale = 0
+    while stale < patience:
+        band = rng.randrange(size)
+        a, b = rng.sample(range(len(blocks)), 2)
+        blocks[a][band], blocks[b][band] = blocks[b][band], blocks[a][band]
+        ca, cb = cost(blocks[a]), cost(blocks[b])
+        if ca + cb < costs[a] + costs[b] - 1e-9:
+            costs[a], costs[b] = ca, cb
+            stale = 0
+        else:
+            blocks[a][band], blocks[b][band] = blocks[b][band], blocks[a][band]
+            stale += 1
 
 
 def order_within_block(
@@ -293,6 +374,17 @@ def estimate_session_minutes(block: list[dict]) -> float:
             + len(block) * cfg.MINUTES_PER_ITEM_RATING)
 
 
+def pick_pilot_block(blocks: list[list[dict]]) -> int:
+    """Index of the block whose word total is closest to the median block.
+
+    A pilot exists to check timing and comprehension, so it should run on
+    the most typical block, not the first one or a random one.
+    """
+    totals = [sum(it["n_words"] for it in b) for b in blocks]
+    median = sorted(totals)[len(totals) // 2]
+    return min(range(len(blocks)), key=lambda b: (abs(totals[b] - median), b))
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Output
 # ════════════════════════════════════════════════════════════════════════════
@@ -355,6 +447,11 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=cfg.SEED)
     p.add_argument("--encoding", type=str, default=cfg.DEFAULT_ENCODING)
     p.add_argument(
+        "--pilot-raters", type=int, default=0,
+        help="Nominate the most typical block as a pilot block and assign "
+             "it to this many pilot raters (P001..). 0 (default) = no pilot.",
+    )
+    p.add_argument(
         "--dry-run", action="store_true",
         help="Report the plan and balance without writing block CSVs.",
     )
@@ -366,6 +463,8 @@ def main() -> None:
         p.error("--blocks-per-rater must be >= 1")
     if args.raters_per_item < 1:
         p.error("--raters-per-item must be >= 1")
+    if args.pilot_raters < 0:
+        p.error("--pilot-raters must be >= 0")
 
     stem = cfg.csv_stem(args.task)
     out_dir = args.run_dir / cfg.HUMAN_SUBDIR
@@ -426,6 +525,15 @@ def main() -> None:
           f"{args.blocks_per_rater - 1} x {cfg.BREAK_MINUTES} min break")
     print(f"[time] ~{total_min:.0f} min per rater "
           f"(range {total_lo:.0f}-{total_hi:.0f} across blocks)")
+
+    pilot_b = pick_pilot_block(blocks) if args.pilot_raters else None
+    if pilot_b is not None:
+        pb = blocks[pilot_b]
+        print(f"\n[pilot] block {pilot_b + 1:03d} -> {args.pilot_raters} pilot "
+              f"raters: {sum(it['n_words'] for it in pb)} words, "
+              f"~{_total(estimate_session_minutes(pb)):.0f} min")
+        print(f"[pilot] categories: "
+              f"{dict(sorted(Counter(it['category'] for it in pb).items()))}")
 
     if args.dry_run:
         print("\n[dry-run] nothing written.")
@@ -495,6 +603,26 @@ def main() -> None:
                        for r, bs in sorted(assignment.items())},
         "created_at": datetime.now().isoformat(),
     }
+    if pilot_b is not None:
+        pilot_rows = [
+            {"rater_id": f"P{i:03d}", "session": 1, "block_id": pilot_b + 1,
+             "n_items": len(blocks[pilot_b]),
+             "est_minutes": round(estimate_session_minutes(blocks[pilot_b]), 1)}
+            for i in range(1, args.pilot_raters + 1)
+        ]
+        _write_csv(out_dir / f"{stem.replace('_items', '')}_pilot_assignment.csv",
+                   pilot_rows,
+                   ["rater_id", "session", "block_id", "n_items", "est_minutes"],
+                   args.encoding)
+        manifest["pilot"] = {
+            "block_id": pilot_b + 1,
+            "n_pilot_raters": args.pilot_raters,
+            "block_words": sum(it["n_words"] for it in blocks[pilot_b]),
+            "est_minutes_per_rater": round(
+                _total(estimate_session_minutes(blocks[pilot_b])), 1),
+            "note": "Pilot raters are additional to the block's main raters.",
+        }
+
     manifest_path = out_dir / f"{stem.replace('_items', '')}_blocks_manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
@@ -504,6 +632,9 @@ def main() -> None:
     print(f"[write] {stem}_with_blocks.csv")
     print(f"[write] {stem.replace('_items', '')}_rater_assignment.csv "
           f"({len(plan_rows)} rater-sessions)")
+    if pilot_b is not None:
+        print(f"[write] {stem.replace('_items', '')}_pilot_assignment.csv "
+              f"(block {pilot_b + 1:03d} x {args.pilot_raters})")
     print(f"[write] {manifest_path.name}")
 
 

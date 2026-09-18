@@ -418,6 +418,7 @@ def build_rows(
             ),
             "ai_message": format_text(ai_message, text_format),
             "is_long_text": int(bool(conv.get("belief", {}).get("is_long_text"))),
+            "belief_category": parse_session_id(sid)["category"],
         })
         stats["rows"] += 1
 

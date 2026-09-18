@@ -101,31 +101,29 @@ RATERS_PER_ITEM = 3
 # rotation needs BLOCKS_PER_RATER to divide B, and yields
 #     n_raters = RATERS_PER_ITEM * B / BLOCKS_PER_RATER
 #
-# At N=600: blocks of 10, 2 blocks per rater -> 60 blocks, 90 raters, 20
-# items each. One block per session (see SESSIONS_PER_RATER), so the break
-# falls exactly on a block boundary and no item is split across it.
-BLOCK_SIZE = 10
-BLOCKS_PER_RATER = 2
+# At N=600: blocks of 15, 1 block per rater -> 40 blocks, 120 raters, 15
+# items each, one ~42-minute sitting with no break. 15 is a divisor of 600,
+# so every block is full and banding (below) gives 15 length bands of 40.
+BLOCK_SIZE = 15
+BLOCKS_PER_RATER = 1
 
 # ── Session structure ───────────────────────────────────────────────────────
 # Consent, instructions, practice items and demographics are a fixed ~7 min
-# cost paid once per rater. Splitting the work into two sessions with a short
-# break amortises that overhead over more items without pushing sustained
-# rating time past what attention supports.
+# cost paid once per rater. One block of 15 is a single sitting: long enough
+# to amortise that overhead, short enough to need no break.
 #
 # Measured from this run's text (419 words/item mean: 473 for long-text
 # beliefs, 382 for short) at 200-220 wpm plus ~20s to rate three dimensions:
 #
 #     onboarding      ~7 min
-#     session 1       10 items  ~22-24 min
-#     break            5 min
-#     session 2       10 items  ~22-24 min
+#     session         15 items  ~33-37 min
 #     ------------------------------------
-#     total           20 items  ~56-60 min
+#     total           15 items  ~40-44 min
 #
-# Just under the hour, and blocks are balanced on is_long_text precisely so
-# this estimate holds for every rater rather than on average.
-SESSIONS_PER_RATER = 2
+# Blocks are banded on word count precisely so this estimate holds for
+# every rater rather than on average. Raising BLOCKS_PER_RATER to 2 would
+# restore a two-session design with a BREAK_MINUTES break between blocks.
+SESSIONS_PER_RATER = 1
 BREAK_MINUTES = 5
 ONBOARDING_MINUTES = 7.0
 # Reading speed and per-item rating overhead used for the printed estimate.
@@ -141,7 +139,7 @@ MINUTES_PER_ITEM_RATING = 0.33
 # words), so two blocks with the same long/short split can still differ by
 # tens of minutes. Instead, items are ranked by total word count and cut into
 # BLOCK_SIZE bands of equal size; each block takes exactly one item from each
-# band. That gives every rater
+# band (15 bands of 40 at the defaults). That gives every rater
 #   * near-identical total reading load (one item per length decile), and
 #   * a mix spanning the shortest to the longest items, so no one gets a
 #     block of uniformly punishing text — which is the fatigue risk.
@@ -150,6 +148,14 @@ MINUTES_PER_ITEM_RATING = 0.33
 # spread the design factors below, so length balance and factor balance are
 # optimised together rather than trading off.
 BLOCK_BALANCE_KEYS = ("cell_id", "target_model", "turn", "category")
+
+# The balance key the swap-repair pass weights most heavily. Category gets
+# priority because it is the belief sample's stratum and because it is
+# entangled with length (the long-text beliefs are all fake_health or
+# fake_news), so the length bands alone would skew it. With 600 items in
+# 40 blocks the proportional block is exactly 4/2/3/2/4, which the repair
+# reaches for every block.
+BLOCK_PRIORITY_KEY = "category"
 
 # Item order inside a block. "shuffle" (default) randomises so that position
 # effects (fatigue, drift in severity) are not confounded with item length.
@@ -189,9 +195,14 @@ DEFAULT_ENCODING = "utf-8-sig"
 # same stimulus. Long-text beliefs are rendered "[title] body", matching
 # core.scoring._format_belief_for_evaluator.
 #
-# No other provenance columns: session_id is a structured key —
+# session_id is a structured key —
 # cell-{iv1}__{iv2}__belief-{category}-{index}__model-{slug} — so condition,
-# belief, category, and target model are recoverable by parsing it.
+# belief and target model are recoverable by parsing it. belief_category is
+# carried explicitly as well, because it is the stratum the belief sample
+# was drawn on and the first thing a per-block or per-response breakdown
+# needs; exporting it saves every downstream consumer from re-parsing.
+# It is appended LAST so Field/1-6 keep their positions in any survey
+# already wired to them.
 COLUMNS = (
     "session_id",             # Field/1 — hidden, join key
     "turn",                   # Field/2 — hidden, join key
@@ -199,8 +210,9 @@ COLUMNS = (
     "misinformation_belief",  # Field/4
     "ai_message",             # Field/5
     "is_long_text",           # Field/6 — hidden, block-balancing key
+    "belief_category",        # Field/7 — hidden, sampling stratum
 )
 
 # Columns an annotator should never be shown in the rendered question.
 # Recorded here so the survey-building step has a single source of truth.
-HIDDEN_COLUMNS = ("session_id", "turn", "is_long_text")
+HIDDEN_COLUMNS = ("session_id", "turn", "is_long_text", "belief_category")
